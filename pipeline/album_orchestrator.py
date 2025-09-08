@@ -226,8 +226,22 @@ class AlbumMusicPipeline:
                 # Fallback to heuristic processing
                 return self._process_album_with_heuristics(album_info, start_time)
             
-            # Single LLM processing stage (replaces stages 2, 3, and 4)
+            # Single LLM processing stage for album classification
             final_info = self.album_processor.process(album_info)
+            
+            # Separate track normalization processing if requested
+            if self.normalize_tracks:
+                try:
+                    track_processor = self.album_processor.track_processor
+                    if track_processor:
+                        track_normalization = track_processor.process_tracks(album_info)
+                        # Add track normalization to final_info
+                        final_info_dict = final_info.model_dump()
+                        final_info_dict['track_normalization'] = track_normalization
+                        final_info = FinalAlbumInfo.model_validate(final_info_dict)
+                        logger.debug(f"Track normalization completed for {album_info.album_name}")
+                except Exception as e:
+                    logger.warning(f"Track normalization failed for {album_info.album_name}: {e}")
             
             # Cache the result
             # self.cache_manager.cache_file_result(album_info.album_path, final_info)  # Would need to adapt for albums
