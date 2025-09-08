@@ -72,7 +72,12 @@ For each track, apply in order:
 
 ## Output Format
 
-CRITICAL: You must respond with ONLY a valid JSON object in this exact format:
+ABSOLUTELY CRITICAL: 
+- You MUST respond with ONLY a valid JSON object
+- NO explanatory text before or after the JSON
+- NO markdown formatting or code blocks
+- NO comments or descriptions
+- JUST the raw JSON object starting with { and ending with }
 
 ```json
 {
