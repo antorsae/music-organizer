@@ -85,7 +85,6 @@ class FinalAlbumInfo(BaseModel):
     format_tags: List[str] = Field(default_factory=list, description="Audio format tags (SACD, XRCD, etc.)")
     is_compilation: bool = Field(..., description="Whether this is a compilation/various artists album")
     confidence: float = Field(..., description="Confidence score for the classification", ge=0.0, le=1.0)
-    track_normalization: Optional[TrackNormalizationResult] = Field(default=None, description="Track filename normalization results")
     
     @validator('year', pre=True)
     def parse_year(cls, v):

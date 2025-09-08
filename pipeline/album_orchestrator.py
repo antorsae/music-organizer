@@ -229,19 +229,7 @@ class AlbumMusicPipeline:
             # Single LLM processing stage for album classification
             final_info = self.album_processor.process(album_info)
             
-            # Separate track normalization processing if requested
-            if self.normalize_tracks:
-                try:
-                    track_processor = self.album_processor.track_processor
-                    if track_processor:
-                        track_normalization = track_processor.process_tracks(album_info)
-                        # Add track normalization to final_info
-                        final_info_dict = final_info.model_dump()
-                        final_info_dict['track_normalization'] = track_normalization
-                        final_info = FinalAlbumInfo.model_validate(final_info_dict)
-                        logger.debug(f"Track normalization completed for {album_info.album_name}")
-                except Exception as e:
-                    logger.warning(f"Track normalization failed for {album_info.album_name}: {e}")
+            # Track normalization will be handled separately during output generation
             
             # Cache the result
             # self.cache_manager.cache_file_result(album_info.album_path, final_info)  # Would need to adapt for albums
@@ -871,14 +859,33 @@ class AlbumMusicPipeline:
         """Generate track normalization output files."""
         logger.info("Generating track normalization outputs...")
         
+        # Process track normalization for successful albums
+        track_results = {}
+        track_processor = None
+        
+        # Initialize track processor
+        if self.enable_llm and self.album_processor and self.album_processor.track_processor:
+            track_processor = self.album_processor.track_processor
+        
+        # Process each successful album for track normalization
+        if track_processor:
+            for result in results:
+                if result.success and result.album_info:
+                    try:
+                        track_normalization = track_processor.process_tracks(result.album_info)
+                        track_results[str(result.album_info.album_path)] = track_normalization
+                        logger.info(f"Track normalization completed for {result.album_info.album_name}")
+                    except Exception as e:
+                        logger.warning(f"Track normalization failed for {result.album_info.album_name}: {e}")
+        
         # Generate directory tree (folders only)
         self._generate_directory_tree_only(results)
         
         # Generate full tree with normalized track names
-        self._generate_full_tree_with_tracks(results)
+        self._generate_full_tree_with_tracks(results, track_results)
         
         # Generate track renaming summary
-        self._generate_track_renaming_summary(results)
+        self._generate_track_renaming_summary(results, track_results)
     
     def _generate_directory_tree_only(self, results: List[AlbumProcessingResult]):
         """Generate tree -d equivalent (directories only)."""
@@ -907,7 +914,7 @@ class AlbumMusicPipeline:
         
         logger.info(f"Directory tree (folders only) saved to: {tree_file}")
     
-    def _generate_full_tree_with_tracks(self, results: List[AlbumProcessingResult]):
+    def _generate_full_tree_with_tracks(self, results: List[AlbumProcessingResult], track_results: Dict):
         """Generate full tree including normalized track names."""
         successful_results = [r for r in results if r.success and r.final_album_info]
         
@@ -951,20 +958,21 @@ class AlbumMusicPipeline:
                         f.write(f"│   │   {album_symbol} {album_title}\n")
                         
                         # Add normalized track names if available
-                        if result.final_album_info.track_normalization:
+                        album_path_key = str(result.album_info.album_path)
+                        if album_path_key in track_results:
+                            track_norm = track_results[album_path_key]
                             track_prefix = "│   │       " if not is_last_album else "        "
-                            for track_rename in result.final_album_info.track_normalization.track_renamings:
+                            for track_rename in track_norm.track_renamings:
                                 f.write(f"{track_prefix}├── {track_rename.new_filename}\n")
                 
                 f.write("\n")
         
         logger.info(f"Full tree with tracks saved to: {tree_file}")
     
-    def _generate_track_renaming_summary(self, results: List[AlbumProcessingResult]):
+    def _generate_track_renaming_summary(self, results: List[AlbumProcessingResult], track_results: Dict):
         """Generate summary of track renaming operations."""
-        successful_results = [r for r in results if r.success and r.final_album_info and r.final_album_info.track_normalization]
         
-        if not successful_results:
+        if not track_results:
             logger.info("No track normalization results to summarize")
             return
         
@@ -976,9 +984,12 @@ class AlbumMusicPipeline:
             total_tracks = 0
             total_changes = 0
             
-            for result in successful_results:
-                final_info = result.final_album_info
-                track_norm = final_info.track_normalization
+            for result in results:
+                if result.success and result.album_info:
+                    album_path_key = str(result.album_info.album_path)
+                    if album_path_key in track_results:
+                        final_info = result.final_album_info
+                        track_norm = track_results[album_path_key]
                 
                 f.write(f"📁 {final_info.artist} - {final_info.album_title}\n")
                 f.write(f"   Path: {final_info.final_path}\n")
