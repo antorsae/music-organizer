@@ -651,13 +651,15 @@ class AlbumStage4Canonicalization:
             'soundtrack', 'score', 'film music', 'game music', 'ost',
             'original motion picture', 'music from', 'original soundtrack'
         ]
+        # Anime/Studio Ghibli cues should also trigger soundtrack routing
+        anime_indicators = ['anime', 'ghibli', 'studio ghibli', 'on your mark']
         
         # Check if artist is a known film composer
         is_film_composer = any(composer.lower() in artist_lower 
                               for composer in self.FILM_COMPOSERS)
         
-        if (any(term in genres_text for term in soundtrack_indicators) or 
-            any(term in album_lower for term in soundtrack_indicators) or
+        if (any(term in genres_text for term in soundtrack_indicators + anime_indicators) or 
+            any(term in album_lower for term in soundtrack_indicators + anime_indicators) or
             is_film_composer):
             
             # Determine soundtrack sub-category
@@ -672,7 +674,7 @@ class AlbumStage4Canonicalization:
                     ['tv', 'television', 'hbo', 'netflix', 'season']):
                 return "Soundtracks", "TV", None
             elif any(term in genres_text + ' ' + album_lower for term in 
-                    ['anime', 'ghibli', 'studio ghibli']):
+                    ['anime', 'ghibli', 'studio ghibli', 'on your mark']):
                 return "Soundtracks", "Film", None  # Anime goes under Film
             else:
                 return "Soundtracks", "Film", None  # Default to Film
@@ -728,7 +730,8 @@ class AlbumStage4Canonicalization:
         is_true_compilation = False
         
         # First check: explicit compilation indicators
-        if any(term in album_lower for term in true_compilation_indicators):
+        if (any(term in album_lower for term in true_compilation_indicators) or
+            any(term in artist_lower for term in ['various artists', 'va'])):
             is_true_compilation = True
         
         # Second check: series patterns are always compilations
@@ -763,6 +766,15 @@ class AlbumStage4Canonicalization:
         
         if is_true_compilation:
             return "Compilations & VA", None, None
+
+        # Safety: single-artist collections with collection titles should remain with the artist
+        if (any(term in album_lower for term in collection_titles) and
+            (enriched_info.artist and 
+             enriched_info.artist != "Unknown Artist" and
+             enriched_info.artist != "Unknown" and
+             'various' not in artist_lower and
+             artist_lower.strip() not in {'va', 'various artists'})):
+            return "Library", None, None
         
         # Jazz label/series hints (folder/album tokens)
         JAZZ_LABEL_HINTS = {
@@ -791,7 +803,7 @@ class AlbumStage4Canonicalization:
         # Known electronic artists
         electronic_artists = [
             'jean-michel jarre', 'jean michel jarre', 'daft punk', 'kitaro',
-            'carpenter brut', 'kraftwerk', 'tangerine dream', 'vangelis',
+            'carpenter brut', 'kraftwerk', 'tangerine dream', 'vangelis', 'magic sword',
             'deadmau5', 'aphex twin', 'boards of canada', 'massive attack'
         ]
         
@@ -979,7 +991,9 @@ class AlbumStage4Canonicalization:
                     return "Library", None
         
         # Quality Gate 14: "Film Music and Special Effects" is likely a demo/test disc
-        if 'film music and special effects' in album_lower or 'test' in album_lower or 'demo' in album_lower:
+        if ('film music and special effects' in album_lower or
+            re.search(r'\b(test cd|audiophile test|test disc|test\b)', album_lower) or
+            re.search(r'\b(demo disc|demo cd|demo)\b', album_lower)):
             logger.info(f"Quality Gate: Moving test/demo disc to Compilations")
             return "Compilations & VA", None
         
@@ -1343,7 +1357,8 @@ class AlbumStage4Canonicalization:
         'bill evans', 'miles davis', 'john coltrane', 'cannonball adderley', 'chet baker',
         'sonny rollins', 'thelonious monk', 'art blakey', 'horace silver', 'kenny dorham',
         'lee morgan', 'hank mobley', 'gerry mulligan', 'barney kessel', 'ben webster',
-        'red garland', 'winton kelly', 'tsuyoshi yamamoto', 'arne domnérus', 'arne domnerus'
+        'red garland', 'winton kelly', 'tsuyoshi yamamoto', 'arne domnérus', 'arne domnerus',
+        'art pepper'
     }
 
     def _safety_net_pre(self, genres_lower: List[str], artist_lower: str, album_lower: str):
