@@ -1,0 +1,77 @@
+# Configuration for music-claude organizer
+api:
+  # Model options: gpt-4o, gpt-4o-mini, gpt-5, gpt-5-mini, gpt-5-nano, claude-3-5-sonnet
+  openai_model_extraction: "gpt-4o-mini"  # Fast model for data extraction
+  openai_model_enrichment: "gpt-4o"       # Powerful model for semantic enrichment
+  max_retries: 3
+  timeout_seconds: 30
+
+caching:
+  execution_cache_file: "~/.cache/music-claude/execution.db"
+  api_cache_file: "~/.cache/music-claude/api.json"
+  cache_expiry_days: 30
+
+concurrency:
+  max_workers: 4
+  api_concurrency: 2
+
+filesystem:
+  audio_extensions:
+    - .flac
+    - .mp3
+    - .m4a
+    - .wav
+    - .aiff
+    - .ogg
+    - .opus
+    - .ape
+    - .wv
+    - .dsf
+    - .dff
+
+  ignored_dirs:
+    - covers
+    - artwork
+    - scans
+    - booklet
+    - "@eadir"
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "music-claude.log"
+
+# Music organization categories
+categories:
+  top_buckets:
+    - Classical
+    - Electronic
+    - Jazz
+    - "Compilations & VA"
+    - Soundtracks
+    - Library
+    - Misc
+
+  soundtrack_subs:
+    - Film
+    - TV
+    - Games
+    - "Anime & Ghibli"
+    - "Stage & Musicals"
+
+# Format tags with preference ordering
+format_tags:
+  XRCD24: ["xrcd24", "xr-cd24", "xrcd 24", "xr24"]
+  XRCD2: ["xrcd2", "xrcd 2"]
+  XRCD: ["xrcd"]
+  K2HD: ["k2hd", "k2 hd"]
+  K2: ["k2", "k2 mastering"]
+  SHM-CD: ["shm-cd", "shm cd", "platinum shm-cd"]
+  MFSL: ["mfsl", "mobile fidelity", "udcd"]
+  DCC: ["dcc", "dcc gold"]
+  HDCD: ["hdcd"]
+  SACD: ["sacd"]
+  DSD: ["dsd"]
+  "24K-Gold": ["24k gold", "24kt gold", "24 kt gold", "gold 24k"]
+  "24-88": ["24-88", "24/88", "24bit-88khz"]
+  "24-96": ["24-96", "24/96", "24bit-96khz"]

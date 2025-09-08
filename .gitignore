@@ -1,0 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Application output folder
+_music_claude_output/
+
