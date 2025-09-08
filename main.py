@@ -91,6 +91,12 @@ Examples:
         action="store_true",
         help="Always include the full tracklist in the LLM prompt for maximum context"
     )
+    
+    parser.add_argument(
+        "--normalize-tracks",
+        action="store_true",
+        help="Include track filename normalization in the processing"
+    )
 
     return parser.parse_args()
 
@@ -154,7 +160,8 @@ def main() -> int:
             enable_llm=not args.no_llm,
             output_dir=output_dir,
             model_name=args.model if not args.no_llm else None,
-            include_tracklist=args.include_tracklist
+            include_tracklist=args.include_tracklist,
+            normalize_tracks=args.normalize_tracks
         )
         
         # Process music library

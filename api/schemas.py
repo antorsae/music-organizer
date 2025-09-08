@@ -43,7 +43,30 @@ class RawFileInfo(BaseModel):
         arbitrary_types_allowed = True
 
 
-# Track-level schemas removed in v2 - focusing on album-level processing
+# Track filename normalization schemas for v2
+
+class TrackRenaming(BaseModel):
+    """Information about renaming a single track file."""
+    
+    original_filename: str = Field(..., description="Original track filename")
+    new_filename: str = Field(..., description="Proposed new filename")
+    changed: bool = Field(..., description="Whether the filename would change")
+
+
+class TrackNormalizationAnalysis(BaseModel):
+    """Analysis of track filename normalization for an album."""
+    
+    common_prefix: Optional[str] = Field(default=None, description="Common prefix found across all tracks")
+    numbering_pattern: str = Field(..., description="Track numbering pattern: consistent|inconsistent|none")
+    total_audio_files: int = Field(..., description="Total number of audio files analyzed")
+    flags: List[str] = Field(default_factory=list, description="Warnings or issues found")
+    
+
+class TrackNormalizationResult(BaseModel):
+    """Complete track filename normalization result for an album."""
+    
+    analysis: TrackNormalizationAnalysis = Field(..., description="Analysis of the album's track structure")
+    track_renamings: List[TrackRenaming] = Field(..., description="List of proposed track renamings")
 
 
 # Intermediate schemas removed in v2 - using single comprehensive LLM processing
@@ -61,6 +84,7 @@ class FinalAlbumInfo(BaseModel):
     format_tags: List[str] = Field(default_factory=list, description="Audio format tags (SACD, XRCD, etc.)")
     is_compilation: bool = Field(..., description="Whether this is a compilation/various artists album")
     confidence: float = Field(..., description="Confidence score for the classification", ge=0.0, le=1.0)
+    track_normalization: Optional[TrackNormalizationResult] = Field(default=None, description="Track filename normalization results")
     
     @validator('year', pre=True)
     def parse_year(cls, v):

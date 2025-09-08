@@ -37,7 +37,8 @@ class AlbumMusicPipeline:
         enable_llm: bool = True,
         output_dir: Path = None,
         model_name: str = None,
-        include_tracklist: bool = False
+        include_tracklist: bool = False,
+        normalize_tracks: bool = False
     ):
         """Initialize the album-level music processing pipeline."""
         self.config = config
@@ -45,6 +46,7 @@ class AlbumMusicPipeline:
         self.output_dir = output_dir or Path.cwd()
         self.model_name = model_name or config['api'].get('openai_model_extraction', 'gpt-5')
         self.include_tracklist = include_tracklist
+        self.normalize_tracks = normalize_tracks
         
         # Initialize components
         self.filesystem_ops = FileSystemOperations(
@@ -78,7 +80,8 @@ class AlbumMusicPipeline:
             self.album_processor = AlbumProcessorLLM(
                 self.api_client, 
                 self.model_name,
-                self.include_tracklist
+                self.include_tracklist,
+                self.normalize_tracks
             )
         else:
             self.album_processor = None
@@ -152,6 +155,10 @@ class AlbumMusicPipeline:
         
         # Generate outputs
         self._generate_output_files(results)
+        
+        # Generate track normalization outputs if requested
+        if self.normalize_tracks:
+            self._generate_track_normalization_outputs(results)
         
         # Execute organization if requested
         if execute:
@@ -845,3 +852,148 @@ class AlbumMusicPipeline:
             top_artist = max(bundled_artists.items(), key=lambda x: len(x[1]))
             print(f"   Top Bundle: {top_artist[0]} ({len(top_artist[1])} albums)")
         print(f"Full statistics saved to: {stats_file}")
+    
+    def _generate_track_normalization_outputs(self, results: List[AlbumProcessingResult]):
+        """Generate track normalization output files."""
+        logger.info("Generating track normalization outputs...")
+        
+        # Generate directory tree (folders only)
+        self._generate_directory_tree_only(results)
+        
+        # Generate full tree with normalized track names
+        self._generate_full_tree_with_tracks(results)
+        
+        # Generate track renaming summary
+        self._generate_track_renaming_summary(results)
+    
+    def _generate_directory_tree_only(self, results: List[AlbumProcessingResult]):
+        """Generate tree -d equivalent (directories only)."""
+        successful_results = [r for r in results if r.success and r.final_album_info]
+        
+        # Collect all suggested album directories
+        suggested_dirs = []
+        for result in successful_results:
+            if result.final_album_info and result.final_album_info.final_path:
+                suggested_dirs.append(Path(result.final_album_info.final_path))
+        
+        if not suggested_dirs:
+            return
+        
+        # Build tree structure (directories only)
+        tree = self._build_directory_tree(suggested_dirs)
+        tree_lines = self._format_directory_tree(tree)
+        
+        # Write directory tree (folders only)
+        tree_file = self.output_dir / "directory_tree_folders_only.txt"
+        with open(tree_file, 'w', encoding='utf-8', errors='replace') as f:
+            f.write("Proposed Directory Structure (Folders Only)\n")
+            f.write("=" * 60 + "\n\n")
+            for line in tree_lines:
+                f.write(line + "\n")
+        
+        logger.info(f"Directory tree (folders only) saved to: {tree_file}")
+    
+    def _generate_full_tree_with_tracks(self, results: List[AlbumProcessingResult]):
+        """Generate full tree including normalized track names."""
+        successful_results = [r for r in results if r.success and r.final_album_info]
+        
+        tree_file = self.output_dir / "full_tree_with_normalized_tracks.txt"
+        with open(tree_file, 'w', encoding='utf-8', errors='replace') as f:
+            f.write("Complete Directory Structure with Normalized Track Names\n")
+            f.write("=" * 70 + "\n\n")
+            
+            # Group by category
+            categories = {}
+            for result in successful_results:
+                final_info = result.final_album_info
+                category = final_info.top_category
+                if final_info.sub_category:
+                    category = f"{category}/{final_info.sub_category}"
+                
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(result)
+            
+            # Write tree with tracks
+            for category in sorted(categories.keys()):
+                f.write(f"{category}\n")
+                
+                # Group by artist within category
+                artists = {}
+                for result in categories[category]:
+                    artist = result.final_album_info.artist
+                    if artist not in artists:
+                        artists[artist] = []
+                    artists[artist].append(result)
+                
+                for artist in sorted(artists.keys()):
+                    f.write(f"│   ├── {artist}\n")
+                    
+                    for i, result in enumerate(artists[artist]):
+                        is_last_album = (i == len(artists[artist]) - 1)
+                        album_symbol = "└──" if is_last_album else "├──"
+                        
+                        album_title = result.final_album_info.album_title
+                        f.write(f"│   │   {album_symbol} {album_title}\n")
+                        
+                        # Add normalized track names if available
+                        if result.final_album_info.track_normalization:
+                            track_prefix = "│   │       " if not is_last_album else "        "
+                            for track_rename in result.final_album_info.track_normalization.track_renamings:
+                                f.write(f"{track_prefix}├── {track_rename.new_filename}\n")
+                
+                f.write("\n")
+        
+        logger.info(f"Full tree with tracks saved to: {tree_file}")
+    
+    def _generate_track_renaming_summary(self, results: List[AlbumProcessingResult]):
+        """Generate summary of track renaming operations."""
+        successful_results = [r for r in results if r.success and r.final_album_info and r.final_album_info.track_normalization]
+        
+        if not successful_results:
+            logger.info("No track normalization results to summarize")
+            return
+        
+        summary_file = self.output_dir / "track_renaming_summary.txt"
+        with open(summary_file, 'w', encoding='utf-8', errors='replace') as f:
+            f.write("TRACK FILENAME NORMALIZATION SUMMARY\n")
+            f.write("=" * 50 + "\n\n")
+            
+            total_tracks = 0
+            total_changes = 0
+            
+            for result in successful_results:
+                final_info = result.final_album_info
+                track_norm = final_info.track_normalization
+                
+                f.write(f"📁 {final_info.artist} - {final_info.album_title}\n")
+                f.write(f"   Path: {final_info.final_path}\n")
+                
+                if track_norm.analysis.flags:
+                    f.write(f"   ⚠️ Issues: {', '.join(track_norm.analysis.flags)}\n")
+                
+                if track_norm.analysis.common_prefix:
+                    f.write(f"   🔍 Common Prefix Removed: '{track_norm.analysis.common_prefix}'\n")
+                
+                changes = [t for t in track_norm.track_renamings if t.changed]
+                f.write(f"   📊 {len(changes)}/{len(track_norm.track_renamings)} tracks renamed\n")
+                
+                # Show some examples
+                if changes:
+                    f.write(f"   📝 Examples:\n")
+                    for change in changes[:3]:  # Show first 3 changes
+                        f.write(f"      {change.original_filename} → {change.new_filename}\n")
+                    if len(changes) > 3:
+                        f.write(f"      ... and {len(changes) - 3} more\n")
+                
+                f.write("\n")
+                
+                total_tracks += len(track_norm.track_renamings)
+                total_changes += len(changes)
+            
+            f.write(f"📊 SUMMARY\n")
+            f.write(f"Total albums with track normalization: {len(successful_results)}\n")
+            f.write(f"Total tracks analyzed: {total_tracks}\n")
+            f.write(f"Total track renames needed: {total_changes} ({total_changes/total_tracks*100:.1f}%)\n")
+        
+        logger.info(f"Track renaming summary saved to: {summary_file}")

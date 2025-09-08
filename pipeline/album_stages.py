@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from api.client import ResilientAPIClient
-from api.schemas import AlbumInfo, FinalAlbumInfo
+from api.schemas import AlbumInfo, FinalAlbumInfo, TrackNormalizationResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class AlbumProcessorLLM:
     to extract, enrich, and canonicalize album information in one call.
     """
     
-    def __init__(self, api_client: ResilientAPIClient, model_name: str, include_tracklist: bool = False):
+    def __init__(self, api_client: ResilientAPIClient, model_name: str, include_tracklist: bool = False, normalize_tracks: bool = False):
         """
         Initialize the processor.
         
@@ -28,11 +28,19 @@ class AlbumProcessorLLM:
             api_client: API client for LLM communication
             model_name: LLM model to use (e.g., "gpt-4o", "gpt-5")
             include_tracklist: Whether to include full tracklist in prompts for enhanced context
+            normalize_tracks: Whether to include track filename normalization
         """
         self.api_client = api_client
         self.model_name = model_name
         self.include_tracklist = include_tracklist
+        self.normalize_tracks = normalize_tracks
         self.system_prompt = self._load_system_prompt()
+        
+        # Initialize track normalization processor if needed
+        if normalize_tracks:
+            self.track_processor = TrackNormalizationProcessor(api_client, model_name)
+        else:
+            self.track_processor = None
     
     def _load_system_prompt(self) -> str:
         """Load the comprehensive persona system prompt."""
@@ -71,6 +79,16 @@ class AlbumProcessorLLM:
             temperature=0.0,  # Deterministic for consistency
             max_tokens=2000   # Sufficient for comprehensive response
         )
+        
+        # Add track normalization if requested
+        if self.normalize_tracks and self.track_processor:
+            try:
+                track_normalization = self.track_processor.process_tracks(album_info)
+                result.track_normalization = track_normalization
+                logger.debug(f"Track normalization added: {len(track_normalization.track_renamings)} tracks")
+            except Exception as e:
+                logger.warning(f"Track normalization failed for {album_info.album_name}: {e}")
+                # Continue without track normalization rather than failing the whole album
         
         logger.info(f"Successfully processed album: {result.artist} - {result.album_title}")
         logger.debug(f"Classification: {result.top_category}/{result.sub_category or 'None'}")
@@ -217,6 +235,106 @@ Respond with the JSON object containing all required fields.
             summary_parts.append(f"- Other: {', '.join(other_items)}")
         
         return "\n".join(summary_parts) if summary_parts else "No relevant metadata found"
+
+
+class TrackNormalizationProcessor:
+    """
+    Processor for normalizing track filenames within albums.
+    Uses a specialized persona to analyze and clean track names.
+    """
+    
+    def __init__(self, api_client: ResilientAPIClient, model_name: str):
+        """
+        Initialize the track normalization processor.
+        
+        Args:
+            api_client: API client for LLM communication
+            model_name: LLM model to use for track analysis
+        """
+        self.api_client = api_client
+        self.model_name = model_name
+        self.track_persona = self._load_track_persona()
+    
+    def _load_track_persona(self) -> str:
+        """Load the track normalization persona system prompt."""
+        persona_path = Path(__file__).parent / "track_persona.md"
+        try:
+            with open(persona_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.error(f"Track persona file not found at {persona_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading track persona file: {e}")
+            raise
+    
+    def process_tracks(self, album_info: AlbumInfo) -> TrackNormalizationResult:
+        """
+        Process track filenames for normalization.
+        
+        Args:
+            album_info: Album information containing track files
+            
+        Returns:
+            TrackNormalizationResult with proposed renamings
+        """
+        logger.debug(f"Normalizing track names for: {album_info.album_name}")
+        
+        # Build prompt with track filenames
+        user_prompt = self._build_track_prompt(album_info)
+        
+        # Make LLM call for track normalization
+        result = self.api_client.get_structured_response(
+            prompt=user_prompt,
+            model=self.model_name,
+            response_model=TrackNormalizationResult,
+            system_prompt=self.track_persona,
+            temperature=0.0,
+            max_tokens=3000
+        )
+        
+        logger.debug(f"Track normalization complete: {len(result.track_renamings)} tracks analyzed")
+        
+        return result
+    
+    def _build_track_prompt(self, album_info: AlbumInfo) -> str:
+        """
+        Build user prompt for track normalization.
+        
+        Args:
+            album_info: Album information
+            
+        Returns:
+            Formatted prompt for track analysis
+        """
+        audio_extensions = {'.flac', '.mp3', '.ogg', '.dsf', '.wav', '.aiff', '.ape', '.wv', '.m4a', '.opus'}
+        
+        # Filter only audio files
+        audio_files = [
+            filename for filename in album_info.track_files
+            if any(filename.lower().endswith(ext) for ext in audio_extensions)
+        ]
+        
+        # Format track listing
+        track_listing = "\n".join([f"- {filename}" for filename in audio_files])
+        
+        return f"""
+Analyze and normalize the track filenames in this album folder:
+
+**Album Folder**: {album_info.album_name}
+
+**Audio Files**:
+{track_listing}
+
+**Instructions**:
+1. Find the longest common prefix (LCP) across ALL audio files
+2. Determine the track numbering pattern (consistent/inconsistent/none)
+3. For each audio file, propose a normalized filename following the NN. Track Title.extension format
+4. Remove redundant prefixes, clean spacing, and apply title case
+5. Flag any issues like duplicate track numbers or inconsistent patterns
+
+Respond with the JSON object containing analysis and proposed renamings.
+"""
 
 
 class AlbumStage1Triage:
