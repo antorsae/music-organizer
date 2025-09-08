@@ -257,13 +257,15 @@ class ResilientAPIClient:
                     raise APIRateLimitError(retry_after)
             
             except openai.APITimeoutError as e:
-                logger.warning(f"Request timeout: {e}")
+                logger.warning(f"Request timeout after {self.timeout}s (attempt {attempt + 1}/{self.max_retries + 1})")
                 
                 if attempt < self.max_retries:
                     delay = self._calculate_backoff_delay(attempt)
+                    logger.info(f"Retrying in {delay:.1f}s...")
                     time.sleep(delay)
                     continue
                 else:
+                    logger.error(f"Request timed out after {self.max_retries + 1} attempts")
                     raise APITimeoutError(self.timeout)
             
             except openai.APIStatusError as e:
@@ -279,14 +281,28 @@ class ResilientAPIClient:
                     raise APICommunicationError(str(e), status_code)
             
             except Exception as e:
-                logger.error(f"Unexpected API error: {e}")
-                
-                if attempt < self.max_retries:
-                    delay = self._calculate_backoff_delay(attempt)
-                    time.sleep(delay)
-                    continue
+                # Handle any other exceptions, including lower-level timeout errors
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['timeout', 'timed out', 'read timeout']):
+                    logger.warning(f"Network timeout (attempt {attempt + 1}/{self.max_retries + 1})")
+                    
+                    if attempt < self.max_retries:
+                        delay = self._calculate_backoff_delay(attempt)
+                        logger.info(f"Retrying in {delay:.1f}s...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Request timed out after {self.max_retries + 1} attempts")
+                        raise APITimeoutError(self.timeout)
                 else:
-                    raise APICommunicationError(str(e))
+                    logger.error(f"Unexpected API error: {type(e).__name__}")
+                    
+                    if attempt < self.max_retries:
+                        delay = self._calculate_backoff_delay(attempt)
+                        time.sleep(delay)
+                        continue
+                    else:
+                        raise APICommunicationError(str(e))
         
         # This should never be reached, but just in case
         self.failed_requests += 1

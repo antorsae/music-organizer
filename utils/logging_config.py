@@ -70,6 +70,9 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     
+    # Configure external library logging to reduce noise
+    configure_library_logging()
+    
     # Create main application logger
     app_logger = logging.getLogger('music-claude')
     app_logger.setLevel(numeric_level)
@@ -200,6 +203,8 @@ def configure_library_logging():
         'urllib3',
         'requests',
         'openai',
+        'httpx',
+        'httpcore',
         'mutagen',
         'sqlite3'
     ]
