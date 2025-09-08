@@ -14,6 +14,8 @@ Ani DiFranco - Up Up Up Up Up Up => Library
 Jean-Michel Jarre - Oxygène => Electronic
 Daft Punk - Random Access Memories => Electronic
 Magic Sword - Volume 1 (Deluxe) => Electronic
+Andreas Vollenweider - Caverna Magica => Electronic
+Tomita - Firebird => Electronic
 
 # Jazz artists/labels
 Bill Evans - Waltz for Debby => Jazz
@@ -34,3 +36,9 @@ Queen - Greatest Hits I II (2011 Remasters) => Library
 Tina Turner - Private Dancer [XRCD] => Library
 Tony Bennett & Bill Evans - The Tony Bennett Bill Evans Album => Jazz
 Various Artists - Max Mix Vol. 5 => Compilations & VA
+
+# World Music / Traditional (should be Library)
+Dadawa - Sister Drum => Library
+
+# Classical works by correct artists (not game soundtracks)
+Mario Brunello - Brahms Cello Sonatas => Classical

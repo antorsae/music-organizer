@@ -58,6 +58,11 @@ class ComposerAliases:
         "Giuseppe Verdi": ["Verdi", "G. Verdi"],
         "Antonín Dvořák": ["Dvorak", "A. Dvorak", "A. Dvořák"],
         "Nikolai Rimsky-Korsakov": ["Rimsky-Korsakov", "N. Rimsky-Korsakov"],
+        "Anton Bruckner": ["Bruckner", "A. Bruckner"],
+        "Dmitri Shostakovich": ["Shostakovich", "D. Shostakovich"],
+        "Sergei Prokofiev": ["Prokofiev", "S. Prokofiev"],
+        "Maurice Ravel": ["Ravel", "M. Ravel"],
+        "Claude Debussy": ["Debussy", "C. Debussy"],
     }
     
     @classmethod
@@ -198,30 +203,45 @@ class AlbumStage2Extraction:
 /{TOP_GENRE}/...  # one of: Classical, Jazz, Electronic, Library, Compilations & VA, Soundtracks
 Soundtracks has subgenres: /Soundtracks/{Film|TV|Game|Stage & Musicals}/TITLE (YEAR?)/[VERSION or DISC]
 
-# Normalization Rules (Apply First!)
-1. Trim & tidy:
-   - Collapse repeated spaces/underscores; use " - " as the only separator
-   - Title Case, preserve diacritics (e.g., "Schönberg", "Béla Bartók")
-   - Move format/media tags to the very end: [XRCD] [XRCD24] [K2HD] [SACD] [DSD] [MFSL] [24-88] [SHM-CD]
-   - Year: four digits, placed before tags
+# Normalization Rules (Apply Strictly!)
 
-2. Alias & spelling unification:
-   - Bach, J.S. Bach → Johann Sebastian Bach
-   - Bela Bartok → Béla Bartók
-   - Claude Michel Schonberg → Claude-Michel Schönberg
-   - de Falla → Manuel de Falla
-   - LSO → London Symphony Orchestra; BSO → Boston Symphony Orchestra; CSO → Chicago Symphony Orchestra
-   - Merge punctuation variants (,/&.) into & between artists; use full orchestra names
+1. Trim, Tidy & Tags:
+    - Collapse repeated spaces/underscores; use " - " as the only separator.
+    - Title Case, preserve diacritics.
+    - Format/Media Tags: Move to the VERY END in brackets. Standardize: [XRCD], [XRCD24], [K2HD], [SACD], [DSD], [MFSL], [SHM-CD], [FLAC], [WAV], [APE].
+    - CRITICAL: Remove release group names (e.g., -KOMA, -NOiR, -WRE, -LoKET), source info (WEB, CD, VINYL, REISSUE), and non-informative text (EAC, CUE, Remastered).
+    - Year: Four digits, placed before tags.
 
-3. CJK names:
-   - For Chinese/Japanese/Korean artists, prefer Latin (Native) form: Kitaro (喜多郎), Tsai Chin (蔡琴)
+2. Alias & Spelling Unification:
+    - Bach, J.S. Bach → Johann Sebastian Bach
+    - Bela Bartok → Béla Bartók
+    - Claude Michel Schonberg → Claude-Michel Schönberg
+    - de Falla → Manuel de Falla
+    - LSO → London Symphony Orchestra; BSO → Boston Symphony Orchestra; CSO → Chicago Symphony Orchestra
+    - Merge punctuation variants (,/&.) into & between artists; use full orchestra names
 
-4. Series grouping:
-   - If series keyword appears (e.g., "Best Audiophile Voices", "Audiophile Reference"), group as:
-     /Compilations & VA/{Series Name}/Volume or Disc Name - YEAR [tags]
+3. CJK & Non-Latin Scripts (MANDATORY TRANSLATION):
+    - If artist or album title contains non-Latin characters (Chinese, Japanese, Korean, etc.), you MUST translate/transliterate them to Latin script.
+    - Format: "Latin Script (Original Script)".
+    - Examples: "蔡琴" → "Tsai Chin (蔡琴)"; "淡淡幽情" → "Faint Feeling (淡淡幽情)".
+    - CRITICAL: Do not return untranslated non-Latin characters as the primary name.
 
-5. Multi-disc:
-   - Keep discs together under same album folder: .../ALBUM - YEAR/[CD1], [CD2], ...
+4. Series Grouping:
+    - If series keyword appears (e.g., "Best Audiophile Voices", "Audiophile Reference"), group as:
+      /Compilations & VA/{Series Name}/Volume or Disc Name - YEAR [tags]
+
+5. Multi-disc Albums:
+    - Keep discs together under same album folder: .../ALBUM - YEAR/[CD1], [CD2], ...
+
+6. Classical Music Specifics (NEW):
+    - Artist field determination:
+        - Single-composer album (e.g., "Beethoven: Symphony No. 5"): Artist = Composer (Ludwig van Beethoven).
+        - Multi-composer/Recital (e.g., "Plays Albéniz & Turina"): Artist = Performer (Manuel Barrueco).
+    - Album Title field: Contains the Work Title(s) and the key Performers (if not already in the Artist field).
+
+7. Roman Numerals (NEW):
+    - Convert Roman numerals (I, II, III) in album titles to Arabic numerals (1, 2, 3) UNLESS they are part of a classical work title.
+    - Example: "Greatest Hits II" → "Greatest Hits 2".
 """
     
     def __init__(self, api_client: ResilientAPIClient, model_name: str):
@@ -422,15 +442,16 @@ Extract and normalize the following album information:
 - total_tracks: Confirm the total number of tracks ({album_info.track_count})
 - disc_count: Number of discs (1 for single disc, {len(album_info.disc_subdirs)} if multi-disc)
 
-Important parsing rules:
+Important Parsing and Extraction Rules:
+- CRITICAL: Apply all normalization rules strictly, especially CJK translation (Rule 3) and Alias unification (Rule 2).
+- (NEW) Utilize Metadata: If the folder name is ambiguous (e.g., "Amused to Death", "Islands", or unclear artist/album split), prioritize information found in the Track Listing and Metadata sample, or use your knowledge base to identify the Artist and Album Title.
+- If the album has CJK characters, you MUST apply Rule 3. Use "Unknown Artist" / "Unknown Album" ONLY as a last resort if the content is truly unidentifiable or corrupt.
 - First check if the folder name contains a dash (-) separator
 - If text after the dash contains orchestra/ensemble/band names or performer names, it's likely the artist
 - Words like "Orchestra", "Ensemble", "Quartet", "Trio", "Band", "& His", "& The" often indicate artist names
 - For classical albums, if you see performer names after the work title, extract them as the artist
-- If the album has Chinese/Japanese/Korean characters and you cannot determine the artist/title, use "Unknown Artist" / "Unknown Album"
 - For classical music, identify the COMPOSER as the primary artist if it's a single-composer album
 - For soundtracks, keep the film/show/game title as the album title, not the composer
-- Apply all normalization rules strictly
 - Never return null for artist or album_title fields
 """
 
@@ -441,31 +462,50 @@ class AlbumStage3Enrichment:
     GENRE_CLASSIFICATION_RULES = """
 # Genre Classification Decision Tree (evaluate in order, first match wins)
 
+# CONTEXT (NEW): Be aware of "Genre Traps". Album titles alone are insufficient. 
+
+**Common Genre Traps:**
+- Jazz standards often use titles that sound like films (e.g., "Charade", "The Cat Walk", "True Blue", "Blue City"). Verify the ARTIST and context.
+- Prog rock adaptations of classical works (Emerson Lake & Palmer's "Pictures at an Exhibition", Yes's classical arrangements) are ROCK, not Classical.
+- Electronic arrangements of classical works (Tomita's "Firebird", Wendy Carlos) are ELECTRONIC, not Classical.
+- Chinese world music artists like Dadawa are WORLD/FOLK music, not Jazz or Electronic.
+- Classical performers' names can be confused with games (Mario Brunello is a CELLIST, not related to Mario games).
+
 A) Soundtracks → /Soundtracks/{Film|TV|Game|Stage & Musicals}
-   - Positive signals: OST, Original Motion Picture Soundtrack, Music From, Score, Soundtrack, TV, HBO, Netflix, game titles, film titles, anime/Studio Ghibli
-   - Film composers: Alan Menken, Hans Zimmer, Joe Hisaishi, Ennio Morricone, Michael Nyman, Gabriel Yared, Ramin Djawadi, James Newton Howard, Daniel Pemberton, Henry Mancini, Jérôme Rebotier, Yuji Nomi, Katsu Hoshi, Martin O'Donnell & Michael Salvatori
-   - Stage & Musicals: Original Broadway Cast, Cast Recording, Royal Albert Hall, Staged Concert, 25th Anniversary, Les Misérables, Cirque du Soleil
+    - REQUIREMENT: Must have strong positive signals OR be by a known soundtrack composer AND the album must be a known score.
+    - Positive signals: OST, Original Motion Picture Soundtrack, Music From, Score, Soundtrack, TV, HBO, Netflix, game titles, film titles, anime/Studio Ghibli
+    - Film composers: Alan Menken, Hans Zimmer, Joe Hisaishi, Ennio Morricone, Michael Nyman, Gabriel Yared, Ramin Djawadi, James Newton Howard, Daniel Pemberton, Henry Mancini, Jérôme Rebotier, Yuji Nomi, Katsu Hoshi, Martin O'Donnell & Michael Salvatori
+    - Stage & Musicals: Original Broadway Cast, Cast Recording, Royal Albert Hall, Staged Concert, 25th Anniversary, Les Misérables, Cirque du Soleil
+    - NEGATIVE SIGNALS (If present, strongly disfavor Soundtrack):
+        - Jazz Labels: Blue Note, Prestige, Riverside, TBM (Three Blind Mice).
+        - Known Jazz Artists: If the artist is a prominent Jazz musician and the album is not explicitly labeled OST/Score, it is likely Jazz.
    - Game: Halo, Zelda, Nintendo Orchestra, game franchises
    - TV: HBO/Season/Sxx indicators
 
 B) Classical → /Classical/{Composer}/{Work - Conductor - Soloists/Orchestra - YEAR [tags]}
-   - Positive signals: Symphony, Concerto, Sonata, Suite, Mass, Requiem, Overtures, BWV, K./KV, RV, Op., composer names, orchestra/conductor mentions
-   - COMPOSER-FIRST RULE: If album is 1-composer → top-level = that Composer, not performer
-   - If mixed composers (recital), use /Classical/Recitals/{Performer}/{Album - YEAR [tags]}
+    - Positive signals: Symphony, Concerto, Sonata, Suite, Mass, Requiem, Overtures, BWV, K./KV, RV, Op., composer names, orchestra/conductor mentions
+    - COMPOSER-FIRST RULE: If album is 1-composer → top-level = that Composer, not performer
+    - If mixed composers (recital), use /Classical/Recitals/{Performer}/{Album - YEAR [tags]}
+    - CAUTION (Crossover): Artists like Andrea Bocelli (Popera) are generally NOT Classical. They belong in Library.
 
 C) Jazz → /Jazz/{Artist}/{Album - YEAR [tags]}
-   - Positive signals: jazz artists, combos (Trio, Quartet, Quintet), Blue Note-style naming, standards
+    - Positive signals: jazz artists, combos (Trio, Quartet, Quintet), Blue Note-style naming, standards
+    - Includes Jazz Vocalists (e.g., Diana Krall, Ella Fitzgerald, Jacintha, Ayako Hosokawa).
 
 D) Electronic → /Electronic/{Artist}/{Album - YEAR [tags]}
-   - Electronic artists/labels/styles: Jean-Michel Jarre, Daft Punk, Kitaro, Carpenter Brut, synthwave, ambient
+    - Electronic artists/labels/styles: Jean-Michel Jarre, Daft Punk, Kitaro, Carpenter Brut, synthwave, ambient
+    - Includes New Age/Ambient if primarily electronic (e.g., Andreas Vollenweider, Kitaro).
 
 E) Compilations & VA → /Compilations & VA/{Series or Theme}/{Album - YEAR [tags]}
    - Keywords: Greatest Hits, Best Of, Sampler, Reference, VA, Various Artists, Audiophile, Label Sampler
    - If Greatest Hits lacks an artist, keep here (do not guess artist)
 
-F) Library (Pop/Rock/World/etc.) → /Library/{Artist}/{Album - YEAR [tags]}
-   - Everything else: Adele, Dire Straits, Beach Boys, Muse, Santana, Steely Dan
-   - CROSSOVER RULE: Rock adaptations of classical themes (e.g., ELP "Pictures at an Exhibition") stay in Library, not Classical
+F) Library (Pop/Rock/World/Folk/etc.) → /Library/{Artist}/{Album - YEAR [tags]}
+    - Everything else: Adele, Dire Straits, Beach Boys, Muse, Santana, Steely Dan
+    - World/Traditional (NEW): Includes Cantopop/Mandopop (e.g., Leslie Cheung, Faye Wong, Tsai Chin), Traditional Chinese Music (e.g., Erhu, Pipa performances), Flamenco, Chinese world music (Dadawa - "Sister Drum").
+    - Classical Crossover/Popera: Andrea Bocelli, Secret Garden.
+    - Progressive Rock: Includes classical adaptations by rock bands (e.g., ELP "Pictures at an Exhibition", Yes, Genesis).
+    - CROSSOVER RULE: Rock adaptations of classical themes (e.g., ELP "Pictures at an Exhibition") stay in Library, not Classical
 """
     
     def __init__(self, api_client: ResilientAPIClient, model_name: str):
@@ -540,13 +580,11 @@ Provide semantic analysis for this complete album:
    - 5: Very high energy
 
 6. Is compilation:
-   - true ONLY if album contains tracks from MULTIPLE different artists (Various Artists, VA, samplers)
-   - false if single artist/band album (including their Greatest Hits, Best Of, Collections)
-   - IMPORTANT: "Queen - Greatest Hits" is NOT a compilation (it's a single-artist collection)
-   - IMPORTANT: "Best Audiophile Voices" IS a compilation (multiple artists)
+   - CRITICAL CHECK: 'true' ONLY if the album contains tracks from MULTIPLE different artists.
+   - 'false' if it is a studio album, live album, or "Greatest Hits" by a SINGLE artist/band (e.g., Queen, Eva Cassidy - Songbird, Sarah Vaughan - Crazy and Mixed Up).
 
 7. Additional context:
-   - For classical: identify if single-composer work or mixed recital
+   - For classical: CRITICAL: Explicitly state if it is a "Single Composer Work" or "Mixed Composer/Recital". This directly impacts routing.
    - For soundtracks: identify if Film/TV/Game/Stage
    - Note any special series (Best Audiophile Voices, etc.)
 
@@ -640,6 +678,20 @@ class AlbumStage4Canonicalization:
         genres_text = ' '.join(genres_lower)
         album_lower = enriched_info.album_title.lower() if enriched_info.album_title else ""
         artist_lower = enriched_info.artist.lower() if enriched_info.artist else ""
+        
+        # *** NEW RULE: Centralized Unknown Handling (Route to new 'Unknown' TOP_GENRE) ***
+        is_artist_unknown = (not enriched_info.artist or enriched_info.artist.lower() in ['unknown artist', 'unknown'])
+        is_album_unknown = (not enriched_info.album_title or enriched_info.album_title.lower() in ['unknown album', 'unknown'])
+
+        if is_artist_unknown or is_album_unknown:
+            # Exception: If it's clearly a known compilation series, allow it.
+            series_patterns = ['best audiophile voices', 'audiophile reference', 'super sound', 'max mix', 'super analog sound']
+            if enriched_info.album_title and any(pattern in enriched_info.album_title.lower() for pattern in series_patterns):
+                 # Proceed to compilation check later in the function
+                 pass
+            else:
+                 return "Unknown", None, None
+        # *********************************************************************************
 
         # Safety net (pre): short-circuit obvious artist-based misroutes
         pre = self._safety_net_pre(genres_lower, artist_lower, album_lower)
@@ -693,13 +745,25 @@ class AlbumStage4Canonicalization:
                                    for pattern in classical_patterns)
         
         if (any(term in genres_text for term in classical_indicators) or has_classical_pattern):
-            # Determine if single composer or recital
-            composer = self._identify_composer(enriched_info)
-            if composer:
-                return "Classical", None, composer
+            # Before routing to Classical, check for obvious non-classical artists
+            non_classical_artists = ['emerson, lake & palmer', 'elp', 'yes', 'genesis', 'tomita', 
+                                   'dadawa', 'arne domnérus', 'arne domnerus']
+            if any(artist in artist_lower for artist in non_classical_artists):
+                # This will be caught by quality gates later, but avoid Classical routing here
+                pass  # Skip Classical routing, let it go to Library/Electronic/Jazz
             else:
-                # Mixed composers or recital
-                return "Classical", "Recitals", None
+                # Determine if single composer or recital
+                composer = self._identify_composer(enriched_info)
+                if composer:
+                    return "Classical", None, composer
+                else:
+                    # Mixed composers or recital - but be strict about what is really a recital
+                    # Only use Recitals for true multi-composer performer albums
+                    if self._is_true_recital(enriched_info):
+                        return "Classical", "Recitals", None
+                    else:
+                        # If not a true recital, don't force into Classical
+                        pass  # Let other categories handle it
         
         # Check if artist is a known classical composer (even if not tagged as classical)
         canonical_artist = ComposerAliases.get_canonical_name(enriched_info.artist)
@@ -814,6 +878,51 @@ class AlbumStage4Canonicalization:
         # F) Default to Library for everything else
         top, sub = self._safety_net_post("Library", None, artist_lower, album_lower)
         return top, sub, None
+    
+    def _is_true_recital(self, enriched_info: EnrichedAlbumInfo) -> bool:
+        """Determine if this is truly a multi-composer recital that belongs in Classical/Recitals."""
+        album_lower = (enriched_info.album_title or "").lower()
+        artist_lower = (enriched_info.artist or "").lower()
+        
+        # Positive indicators for true recitals
+        recital_indicators = [
+            'recital', 'recitals', 'plays works by', 'performs', 'collection', 
+            'anthology', 'various composers', 'mixed program', 'concert program'
+        ]
+        
+        # Negative indicators - not recitals
+        non_recital_indicators = [
+            'blues', 'jazz', 'antiphone', 'electronic', 'synthesizer', 
+            'firebird', 'sister drum', 'pictures at an exhibition'  # Known non-classical
+        ]
+        
+        # If it has non-classical indicators, definitely not a recital
+        if any(indicator in album_lower for indicator in non_recital_indicators):
+            return False
+            
+        # If it has clear recital indicators, likely a recital
+        if any(indicator in album_lower for indicator in recital_indicators):
+            return True
+            
+        # If the artist is not a classical performer/conductor/orchestra, probably not a recital
+        classical_performer_indicators = [
+            'orchestra', 'symphony', 'philharmonic', 'ensemble', 'quartet', 
+            'trio', 'quintet', 'choir', 'conductor'
+        ]
+        
+        # Check if artist name suggests classical performer
+        if not any(indicator in artist_lower for indicator in classical_performer_indicators):
+            # Check if it's a known classical performer name
+            known_classical_performers = [
+                'rubinstein', 'horowitz', 'pollini', 'ashkenazy', 'barenboim',
+                'yo-yo ma', 'perlman', 'stern', 'heifetz', 'menuhin',
+                'toscanini', 'karajan', 'bernstein', 'solti', 'ozawa'
+            ]
+            if not any(performer in artist_lower for performer in known_classical_performers):
+                return False
+        
+        # Default to true for classical context if we get here
+        return True
     
     def _identify_composer(self, enriched_info: EnrichedAlbumInfo) -> Optional[str]:
         """Identify if this is a single-composer classical album."""
@@ -933,26 +1042,44 @@ class AlbumStage4Canonicalization:
                 logger.info(f"Quality Gate: Moving The Cure album to Library")
                 return "Library", None
         
-        # Quality Gate 8: Jazz artists wrongly in Soundtracks should move to Jazz
-        jazz_artists = ['bill evans', 'miles davis', 'john coltrane', 'cannonball adderley',
-                       'chet baker', 'sonny rollins', 'thelonious monk', 'art blakey',
-                       'horace silver', 'kenny dorham', 'lee morgan', 'hank mobley',
-                       'johnny coles', 'little johnny c']
-        if top_category == "Soundtracks" and any(artist in artist_lower for artist in jazz_artists):
-            # Check it's not really a soundtrack
-            if not any(term in album_lower for term in ['soundtrack', 'ost', 'score', 'music from']):
-                logger.info(f"Quality Gate: Moving jazz album to Jazz category")
-                return "Jazz", None
+        # Quality Gate 8: Jazz artists wrongly in Soundtracks (REVISED for Genre Traps)
+        # Use the expanded JAZZ_SAFETY list
+        jazz_artists = self.JAZZ_SAFETY
+
+        # Specific Jazz Album "Genre Traps"
+        jazz_album_traps = [
+            'true blue', 'blue city', 'back to the tracks', 'the cat walk', 'bluesnik',
+            'the old songs', 'this here is bobby timmons', 'blow up', "blue's moods"
+        ]
+
+        if top_category == "Soundtracks":
+            is_jazz_artist = any(artist in artist_lower for artist in jazz_artists)
+            is_trap_album = any(album in album_lower for album in jazz_album_traps)
+
+            if is_jazz_artist or is_trap_album:
+                # Check it's not REALLY a soundtrack
+                if not any(term in album_lower for term in ['soundtrack', 'ost', 'score', 'music from the']):
+                    # Specific check for Mancini's Charade (which IS a soundtrack)
+                    if 'charade' in album_lower and 'mancini' in artist_lower:
+                         pass # It is a soundtrack
+                    else:
+                        logger.info(f"Quality Gate 8: Moving likely jazz album '{enriched_info.album_title}' to Jazz category")
+                        return "Jazz", None
         
-        # Quality Gate 9: Classical works wrongly in Game
+        # Quality Gate 9: Classical works wrongly in Game (ENHANCED - The "Mario" confusion)
         if top_category == "Soundtracks" and sub_category == "Game":
-            # Check for classical work patterns
-            classical_patterns = ['sonata', 'concerto', 'symphony', 'quartet', 'quintet']
+            # Check if it's Mario Brunello (Cellist)
+            if 'mario brunello' in artist_lower:
+                logger.info(f"Quality Gate 9: Moving Mario Brunello (Cellist) from Game to Classical")
+                return "Classical", None
+            
+            # (Keep existing logic for classical patterns in Game)
+            classical_patterns = ['sonata', 'concerto', 'symphony', 'quartet', 'quintet', 'bach', 'brahms']
             if any(pattern in album_lower for pattern in classical_patterns):
-                # Check if it's really a game soundtrack
-                if not any(game in album_lower for game in ['zelda', 'halo', 'mario', 'final fantasy']):
-                    logger.info(f"Quality Gate: Moving classical work from Game to Classical")
-                    return "Classical", None
+                 # Check if it's really a game soundtrack
+                 if not any(game in album_lower for game in ['zelda', 'halo', 'mario kart', 'super mario', 'final fantasy', 'myst']):
+                     logger.info(f"Quality Gate 9: Moving classical work from Game to Classical")
+                     return "Classical", None
         
         # Quality Gate 10: Game of Thrones is TV, not Game
         if 'game of thrones' in album_lower:
@@ -1011,9 +1138,81 @@ class AlbumStage4Canonicalization:
             logger.info(f"Quality Gate: Moving Yamadas (Studio Ghibli) to Soundtracks/Film")
             return "Soundtracks", "Film"
 
-        # Post safety: Rock adaptations of classical (ELP Pictures…) => Library
-        if 'emerson, lake & palmer' in artist_lower and 'pictures at an exhibition' in album_lower:
-            logger.info("Quality Gate: Moving ELP 'Pictures at an Exhibition' to Library")
+        # NEW Quality Gate 17: CJK Pop Artists (Cantopop/etc) should be in Library
+        cjk_pop_artists = ['leslie cheung', 'faye wong', 'tsai chin', 'teresa teng', 'jacky cheung', 'dave wong']
+        if any(artist in artist_lower for artist in cjk_pop_artists):
+            if top_category in ["Electronic", "Classical", "Jazz"]:
+                logger.info(f"Quality Gate 17: Moving CJK Pop artist {enriched_info.artist} to Library")
+                return "Library", None
+
+        # NEW Quality Gate 18: Andreas Vollenweider is Electronic/New Age, not Jazz or Library
+        if 'andreas vollenweider' in artist_lower and top_category in ["Jazz", "Library"]:
+            logger.info(f"Quality Gate 18: Moving Andreas Vollenweider to Electronic")
+            return "Electronic", None
+
+        # NEW Quality Gate 19: Andrea Bocelli/Secret Garden are Library (Crossover), not Classical
+        crossover_artists = ['andrea bocelli', 'secret garden']
+        if any(artist in artist_lower for artist in crossover_artists) and top_category == "Classical":
+            logger.info(f"Quality Gate 19: Moving Crossover artist {enriched_info.artist} to Library")
+            return "Library", None
+
+        # NEW Quality Gate 20: Traditional/World Music
+        traditional_indicators = ['erhu', 'pipa', 'guzheng', 'chinese instrumentals', 'flamenco passion', 'dadawa']
+        if (any(term in album_lower for term in traditional_indicators) or
+            'wei li' in artist_lower or 'hui fen min' in artist_lower):
+            if top_category in ["Electronic", "Classical", "Jazz"]:
+                 # Ensure it's not actually a classical concerto
+                if 'concerto' not in album_lower and 'symphony' not in album_lower:
+                    logger.info(f"Quality Gate 20: Moving Traditional/World Music to Library")
+                    return "Library", None
+
+        # NEW Quality Gate 21: ELP and prog rock adaptations → Library
+        prog_rock_classical_artists = ['emerson, lake & palmer', 'elp', 'yes', 'genesis', 'rick wakeman']
+        prog_classical_adaptations = ['pictures at an exhibition', 'carmina burana', 'journey to the centre of the earth']
+        if any(artist in artist_lower for artist in prog_rock_classical_artists):
+            if (any(adaptation in album_lower for adaptation in prog_classical_adaptations) or 
+                top_category == "Classical"):
+                logger.info(f"Quality Gate 21: Moving prog rock classical adaptation {enriched_info.artist} to Library")
+                return "Library", None
+
+        # NEW Quality Gate 22: Dadawa and Chinese World Music → Library
+        chinese_world_artists = ['dadawa', 'da dao wa']
+        chinese_world_albums = ['sister drum', 'voices from the sky', 'sound of the earth']
+        if (any(artist in artist_lower for artist in chinese_world_artists) or
+            any(album in album_lower for album in chinese_world_albums)):
+            if top_category in ["Jazz", "Classical", "Electronic"]:
+                logger.info(f"Quality Gate 22: Moving Chinese World Music artist {enriched_info.artist} to Library")
+                return "Library", None
+
+        # NEW Quality Gate 23: Tomita electronic arrangements → Electronic
+        if 'tomita' in artist_lower:
+            # Tomita is known for electronic arrangements of classical works
+            if top_category in ["Classical", "Jazz", "Library"]:
+                logger.info(f"Quality Gate 23: Moving Tomita electronic arrangements to Electronic")
+                return "Electronic", None
+
+        # NEW Quality Gate 24: Enhanced Mario Brunello detection → Classical
+        if 'mario brunello' in artist_lower:
+            # Check for classical works
+            classical_work_indicators = ['sonata', 'concerto', 'suite', 'brahms', 'beethoven', 'bach']
+            if any(work in album_lower for work in classical_work_indicators):
+                if top_category != "Classical":
+                    logger.info(f"Quality Gate 24: Moving Mario Brunello classical work to Classical")
+                    return "Classical", None
+
+        # NEW Quality Gate 25: Arne Domnérus → Jazz
+        if 'arne domnérus' in artist_lower or 'arne domnerus' in artist_lower:
+            # Check for jazz albums like Antiphone Blues
+            jazz_indicators = ['antiphone blues', 'jazz at the pawnshop', 'blues', 'jazz']
+            if (any(indicator in album_lower for indicator in jazz_indicators) or
+                top_category == "Classical"):
+                logger.info(f"Quality Gate 25: Moving Arne Domnérus to Jazz")
+                return "Jazz", None
+
+        # Post safety: Rock adaptations of classical (ELP Pictures…) => Library (Ensure this runs even if classified as Classical)
+        if (('emerson, lake & palmer' in artist_lower or 'elp' in artist_lower) and
+            'pictures at an exhibition' in album_lower) and top_category != "Library":
+            logger.info(f"Quality Gate (Post): Moving ELP 'Pictures at an Exhibition' from {top_category} to Library")
             return "Library", None
         
         return top_category, sub_category
@@ -1350,7 +1549,9 @@ class AlbumStage4Canonicalization:
     POP_ROCK_LIBRARY = {
         'a-ha', 'aha', 'duran duran', 'mecano', 'muse', 'queen', 'tina turner',
         'steely dan', 'dire straits', 'adele', 'beach boys', 'emerson, lake & palmer',
-        'ani difranco', 'book of love'
+        'ani difranco', 'book of love', 'eagles', 'santana', 'steve miller band', 
+        'tracy chapman', 'fleetwood mac', 'pink floyd', 'roger waters', 'eva cassidy', 
+        'andrea bocelli', 'secret garden', 'duncan dhu', 'the cure'
     }
 
     JAZZ_SAFETY = {
@@ -1358,7 +1559,9 @@ class AlbumStage4Canonicalization:
         'sonny rollins', 'thelonious monk', 'art blakey', 'horace silver', 'kenny dorham',
         'lee morgan', 'hank mobley', 'gerry mulligan', 'barney kessel', 'ben webster',
         'red garland', 'winton kelly', 'tsuyoshi yamamoto', 'arne domnérus', 'arne domnerus',
-        'art pepper'
+        'art pepper', 'tina brooks', 'donald byrd', 'jackie mclean', 'blue mitchell', 
+        'bobby timmons', 'isao suzuki', 'diana krall', 'ayako hosokawa', 'modern jazz quartet', 
+        'mjq', 'sarah vaughan', 'jacintha', 'bennie wallace'
     }
 
     def _safety_net_pre(self, genres_lower: List[str], artist_lower: str, album_lower: str):
