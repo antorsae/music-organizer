@@ -14,8 +14,7 @@ from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from api.schemas import (
-    AlbumInfo, ExtractedAlbumInfo, EnrichedAlbumInfo, 
-    FinalAlbumInfo, AlbumProcessingResult
+    AlbumInfo, FinalAlbumInfo, AlbumProcessingResult
 )
 from api.client import ResilientAPIClient
 from filesystem.file_ops import FileSystemOperations

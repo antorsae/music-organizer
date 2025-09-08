@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 
-from api.schemas import FinalTrackInfo
+from api.schemas import FinalAlbumInfo
 from utils.exceptions import CacheError
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ class L1ExecutionCache:
             logger.warning(f"Error checking execution cache: {e}")
             return False
     
-    def cache_file_result(self, file_path: Path, result: FinalTrackInfo, success: bool = True):
+    def cache_file_result(self, file_path: Path, result: FinalAlbumInfo, success: bool = True):
         """
         Cache the processing result for a file.
         
@@ -126,7 +126,7 @@ class L1ExecutionCache:
         except (OSError, sqlite3.Error) as e:
             logger.warning(f"Error caching file result: {e}")
     
-    def get_cached_result(self, file_path: Path) -> Optional[FinalTrackInfo]:
+    def get_cached_result(self, file_path: Path) -> Optional[FinalAlbumInfo]:
         """Get cached result for a file if available and current."""
         if not self.is_file_cached(file_path):
             return None
@@ -141,7 +141,7 @@ class L1ExecutionCache:
                 
                 result = cursor.fetchone()
                 if result and result[0]:
-                    return FinalTrackInfo.parse_raw(result[0])
+                    return FinalAlbumInfo.model_validate_json(result[0])
                 
         except (sqlite3.Error, Exception) as e:
             logger.warning(f"Error retrieving cached result: {e}")
@@ -330,7 +330,7 @@ class CacheManager:
         
         return False
     
-    def cache_file_result(self, file_path: Path, result: FinalTrackInfo):
+    def cache_file_result(self, file_path: Path, result: FinalAlbumInfo):
         """Cache file processing result in L1 cache."""
         self.l1_cache.cache_file_result(file_path, result)
     
