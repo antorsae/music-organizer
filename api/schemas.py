@@ -57,6 +57,7 @@ class TrackNormalizationAnalysis(BaseModel):
     """Analysis of track filename normalization for an album."""
     
     common_prefix: Optional[str] = Field(default=None, description="Common prefix found across all tracks")
+    common_suffix: Optional[str] = Field(default=None, description="Common suffix found across all tracks")
     numbering_pattern: str = Field(..., description="Track numbering pattern: consistent|inconsistent|none")
     total_audio_files: int = Field(..., description="Total number of audio files analyzed")
     flags: List[str] = Field(default_factory=list, description="Warnings or issues found")
