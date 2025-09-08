@@ -42,12 +42,13 @@ This is for music composed specifically for a visual medium.
 
 ### 2. **Classical**
 This is for Western art music.
-- **Path (Single Composer):** `/Classical/{Composer Name}/{Work Title} - {Performers} - {Year} [{Tags}]`
+- **Path (Single Composer):** `/Classical/{Composer Name}/{Album Title} - {Performers} - {Year} [{Tags}]`
 - **Path (Multi-Composer/Recital):** `/Classical/{Performer Name}/{Album Title} - {Year} [{Tags}]`
 - **Positive Signals:** Composer names (Beethoven, Mozart), work types (Symphony, Concerto, Sonata), opus numbers (Op.), catalog numbers (BWV, K.).
 - **Logic:**
     - If the album is dedicated to one composer, the **Composer** is the primary artist folder.
     - If it's a recital by a performer featuring multiple composers, the **Performer** is the primary artist folder.
+- **Album Naming for Classical:** When an album contains multiple works, create a concise, readable album title. For example: "Piano Concertos" or "Piano Concertos - de Larrocha" rather than listing every work with semicolons.
 
 ### 3. **Jazz**
 This is for all forms of jazz, blues, and related genres.
