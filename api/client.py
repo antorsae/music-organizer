@@ -69,7 +69,8 @@ class ResilientAPIClient:
         model: str,
         response_model: Type[T],
         temperature: float = 0.0,
-        max_tokens: int = 1000
+        max_tokens: int = 1000,
+        system_prompt: Optional[str] = None
     ) -> T:
         """
         Get a structured response from the LLM that conforms to a Pydantic schema.
@@ -80,6 +81,7 @@ class ResilientAPIClient:
             response_model: Pydantic model class for response validation
             temperature: Sampling temperature (0.0 for deterministic)
             max_tokens: Maximum tokens in response
+            system_prompt: Optional system prompt to guide model behavior
             
         Returns:
             Validated Pydantic model instance
@@ -106,10 +108,16 @@ class ResilientAPIClient:
             try:
                 logger.debug(f"API request attempt {attempt + 1}/{self.max_retries + 1}")
                 
+                # Build messages array, optionally including system prompt
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": enhanced_prompt})
+                
                 # Use appropriate parameter based on model
                 completion_params = {
                     "model": model,
-                    "messages": [{"role": "user", "content": enhanced_prompt}],
+                    "messages": messages,
                     "timeout": self.timeout
                 }
                 

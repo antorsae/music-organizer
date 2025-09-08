@@ -20,7 +20,7 @@ from api.schemas import (
 from api.client import ResilientAPIClient
 from filesystem.file_ops import FileSystemOperations
 from filesystem.album_detector import AlbumDetector
-from pipeline.album_stages import AlbumStage1Analysis, AlbumStage2Extraction, AlbumStage3Enrichment, AlbumStage4Canonicalization
+from pipeline.album_stages import AlbumStage1Triage, AlbumProcessorLLM
 from caching.cache_manager import CacheManager
 from utils.exceptions import MusicOrganizerError, FileProcessingError
 
@@ -71,22 +71,15 @@ class AlbumMusicPipeline:
         )
         
         # Initialize pipeline stages
-        self.stage1 = AlbumStage1Analysis(self.filesystem_ops, self.album_detector)
+        self.stage1 = AlbumStage1Triage()
         
         if enable_llm:
-            self.stage2 = AlbumStage2Extraction(
-                self.api_client, 
-                self.model_name
-            )
-            self.stage3 = AlbumStage3Enrichment(
+            self.album_processor = AlbumProcessorLLM(
                 self.api_client, 
                 self.model_name
             )
         else:
-            self.stage2 = None
-            self.stage3 = None
-            
-        self.stage4 = AlbumStage4Canonicalization()
+            self.album_processor = None
         
         # Configuration for organization
         self.top_buckets = config['categories']['top_buckets']
@@ -125,17 +118,29 @@ class AlbumMusicPipeline:
         
         # Discover albums
         logger.info("Discovering albums...")
-        albums = self.album_detector.discover_albums(music_dir)
+        album_paths = self.album_detector.discover_albums(music_dir)
         
         if limit:
-            albums = albums[:limit]
+            album_paths = album_paths[:limit]
             logger.info(f"Limited processing to {limit} albums")
         
-        logger.info(f"Found {len(albums)} albums to process")
+        logger.info(f"Found {len(album_paths)} albums to process")
         
-        if not albums:
+        if not album_paths:
             logger.warning("No albums found")
             return {'processed': 0, 'skipped': 0, 'failed': 0}
+        
+        # Convert paths to AlbumInfo objects
+        logger.info("Analyzing album structures...")
+        albums = []
+        for album_path in album_paths:
+            try:
+                album_info = self._create_album_info(album_path)
+                albums.append(album_info)
+            except Exception as e:
+                logger.error(f"Failed to analyze album {album_path}: {e}")
+        
+        logger.info(f"Successfully analyzed {len(albums)} albums")
         
         # Process albums
         if self.config['concurrency']['max_workers'] > 1:
@@ -177,12 +182,12 @@ class AlbumMusicPipeline:
             'total_time': processing_time
         }
     
-    def process_single_album(self, album_path: Path) -> AlbumProcessingResult:
+    def process_single_album(self, album_info: AlbumInfo) -> AlbumProcessingResult:
         """
-        Process a single album through all pipeline stages.
+        Process a single album through the simplified pipeline.
         
         Args:
-            album_path: Path to the album directory
+            album_info: AlbumInfo from album discovery
             
         Returns:
             AlbumProcessingResult with the outcome
@@ -190,25 +195,14 @@ class AlbumMusicPipeline:
         start_time = time.time()
         
         try:
-            logger.debug(f"Processing album: {album_path}")
+            logger.debug(f"Processing album: {album_info.album_name}")
             
-            # Stage 1: Album Analysis
-            album_info = self.stage1.process(album_path)
-            if album_info is None:
-                logger.debug(f"Album skipped in Stage 1: {album_path}")
-                return AlbumProcessingResult(
-                    album_info=None,
-                    success=False,
-                    final_album_info=None,
-                    error_message="Album skipped (no audio files or other reason)",
-                    processing_time_seconds=time.time() - start_time,
-                    pipeline_stage_completed="stage1"
-                )
+            # Stage 1: Triage (validation)
+            album_info = self.stage1.process(album_info)
             
             # Check cache first (using album path as key)
-            cache_key = str(album_path)
-            if self.cache_manager.is_file_cached(album_path):
-                logger.debug(f"Album found in cache, skipping: {album_path}")
+            if self.cache_manager.is_file_cached(album_info.album_path):
+                logger.debug(f"Album found in cache, skipping: {album_info.album_path}")
                 self.stats['cache_hits'] += 1
                 return AlbumProcessingResult(
                     album_info=album_info,
@@ -223,17 +217,11 @@ class AlbumMusicPipeline:
                 # Fallback to heuristic processing
                 return self._process_album_with_heuristics(album_info, start_time)
             
-            # Stage 2: Structured Data Extraction
-            extracted_info = self.stage2.process(album_info)
-            
-            # Stage 3: Semantic Enrichment
-            enriched_info = self.stage3.process(extracted_info)
-            
-            # Stage 4: Canonicalization & Organization
-            final_info = self.stage4.process(enriched_info, album_info)
+            # Single LLM processing stage (replaces stages 2, 3, and 4)
+            final_info = self.album_processor.process(album_info)
             
             # Cache the result
-            # self.cache_manager.cache_file_result(album_path, final_info)  # Would need to adapt for albums
+            # self.cache_manager.cache_file_result(album_info.album_path, final_info)  # Would need to adapt for albums
             
             processing_time = time.time() - start_time
             self.stats['albums_processed'] += 1
@@ -245,12 +233,12 @@ class AlbumMusicPipeline:
                 final_album_info=final_info,
                 error_message=None,
                 processing_time_seconds=processing_time,
-                pipeline_stage_completed="stage4"
+                pipeline_stage_completed="llm_complete"
             )
         
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Failed to process album {album_path}: {error_msg}")
+            logger.error(f"Failed to process album {album_info.album_name}: {error_msg}")
             
             self.stats['albums_failed'] += 1
             
@@ -263,42 +251,104 @@ class AlbumMusicPipeline:
                 pipeline_stage_completed="error"
             )
     
-    def _process_albums_sequential(self, album_paths: List[Path]) -> List[AlbumProcessingResult]:
+    def _create_album_info(self, album_path: Path) -> AlbumInfo:
+        """
+        Create an AlbumInfo object from an album directory path.
+        
+        Args:
+            album_path: Path to the album directory
+            
+        Returns:
+            AlbumInfo object with filesystem analysis
+        """
+        # Get album tracks
+        track_paths = self.album_detector.get_album_tracks(album_path)
+        track_files = [track.name for track in track_paths]
+        
+        # Get parent directories (for context)
+        parent_dirs = list(album_path.parents[0].parts) if album_path.parents else []
+        
+        # Analyze disc structure
+        disc_subdirs = []
+        has_disc_structure = False
+        
+        for subdir in album_path.iterdir():
+            if (subdir.is_dir() and 
+                self.album_detector.disc_dir_pattern.match(subdir.name)):
+                disc_subdirs.append(subdir.name)
+                has_disc_structure = True
+        
+        # Calculate total size
+        total_size_bytes = sum(track.stat().st_size for track in track_paths if track.exists())
+        total_size_mb = total_size_bytes / (1024 * 1024)
+        
+        # Sample metadata from first few tracks
+        sample_metadata = {}
+        if track_paths:
+            # Try to extract metadata from the first track
+            try:
+                import mutagen
+                first_track = track_paths[0]
+                audio_file = mutagen.File(first_track)
+                if audio_file:
+                    # Convert mutagen metadata to simple dict
+                    for key, value in audio_file.items():
+                        if isinstance(value, list) and len(value) == 1:
+                            sample_metadata[key] = value[0]
+                        else:
+                            sample_metadata[key] = value
+            except Exception as e:
+                logger.debug(f"Could not extract metadata from {first_track}: {e}")
+        
+        return AlbumInfo(
+            album_path=album_path,
+            album_name=album_path.name,
+            parent_dirs=parent_dirs,
+            track_count=len(track_paths),
+            track_files=track_files,
+            track_paths=track_paths,
+            has_disc_structure=has_disc_structure,
+            disc_subdirs=disc_subdirs,
+            total_size_mb=total_size_mb,
+            sample_metadata=sample_metadata
+        )
+    
+    def _process_albums_sequential(self, albums: List[AlbumInfo]) -> List[AlbumProcessingResult]:
         """Process albums sequentially."""
         results = []
         
-        for i, album_path in enumerate(album_paths):
+        for i, album_info in enumerate(albums):
             if i % 10 == 0 and i > 0:
-                logger.info(f"Processed {i}/{len(album_paths)} albums")
+                logger.info(f"Processed {i}/{len(albums)} albums")
             
-            result = self.process_single_album(album_path)
+            result = self.process_single_album(album_info)
             results.append(result)
         
         return results
     
-    def _process_albums_concurrent(self, album_paths: List[Path]) -> List[AlbumProcessingResult]:
+    def _process_albums_concurrent(self, albums: List[AlbumInfo]) -> List[AlbumProcessingResult]:
         """Process albums concurrently using ThreadPoolExecutor."""
         max_workers = self.config['concurrency']['max_workers']
         results = []
         
-        logger.info(f"Processing {len(album_paths)} albums with {max_workers} workers")
+        logger.info(f"Processing {len(albums)} albums with {max_workers} workers")
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
-            future_to_path = {
-                executor.submit(self.process_single_album, album_path): album_path
-                for album_path in album_paths
+            future_to_album = {
+                executor.submit(self.process_single_album, album_info): album_info
+                for album_info in albums
             }
             
             # Collect results as they complete
             completed = 0
-            for future in as_completed(future_to_path):
+            for future in as_completed(future_to_album):
                 result = future.result()
                 results.append(result)
                 
                 completed += 1
                 if completed % 10 == 0:
-                    logger.info(f"Completed {completed}/{len(album_paths)} albums")
+                    logger.info(f"Completed {completed}/{len(albums)} albums")
         
         return results
     
@@ -321,29 +371,21 @@ class AlbumMusicPipeline:
         else:
             top_category = "Library"
         
-        # Create simplified final info
+        # Build final path
+        artist = album_info.parent_dirs[-1] if album_info.parent_dirs else "Unknown Artist"
+        final_path = f"{top_category}/{artist}/{album_info.album_name}"
+        
+        # Create simplified final info using new schema
         final_info = FinalAlbumInfo(
-            artist=album_info.parent_dirs[-1] if album_info.parent_dirs else "Unknown Artist",
+            artist=artist,
             album_title=album_info.album_name,
             year=None,
-            total_tracks=album_info.track_count,
-            disc_count=len(album_info.disc_subdirs) if album_info.disc_subdirs else 1,
-            genres=["Unknown"],
-            moods=["Unknown"],
-            style_tags=["Unknown"],
-            target_audience=["General"],
-            energy_level=3,
-            is_compilation=False,
-            canonical_artist=album_info.parent_dirs[-1] if album_info.parent_dirs else "Unknown Artist",
-            canonical_album_title=album_info.album_name,
-            musicbrainz_release_id=None,
             top_category=top_category,
             sub_category=None,
-            suggested_album_dir=album_info.album_path.parent / top_category / album_info.album_name,
-            organization_reason="Heuristic processing (LLM disabled)",
-            confidence_score=0.5,
+            final_path=final_path,
             format_tags=[],
-            processing_notes=["Processed with heuristics only"]
+            is_compilation=False,
+            confidence=0.5
         )
         
         return AlbumProcessingResult(
@@ -390,8 +432,9 @@ class AlbumMusicPipeline:
         # Collect all suggested album directories
         suggested_dirs = []
         for result in results:
-            if result.final_album_info and result.final_album_info.suggested_album_dir:
-                suggested_dirs.append(result.final_album_info.suggested_album_dir)
+            if result.final_album_info and result.final_album_info.final_path:
+                # Convert final_path string to Path object
+                suggested_dirs.append(Path(result.final_album_info.final_path))
         
         if not suggested_dirs:
             return
@@ -451,7 +494,8 @@ class AlbumMusicPipeline:
                     for track_path in result.album_info.track_paths:
                         # Generate suggested track path
                         track_filename = track_path.name
-                        suggested_track_path = album_info.suggested_album_dir / track_filename
+                        suggested_album_dir = Path(album_info.final_path)
+                        suggested_track_path = suggested_album_dir / track_filename
                         
                         # Clean strings to handle invalid UTF-8 sequences
                         def clean_str(s):
@@ -462,13 +506,13 @@ class AlbumMusicPipeline:
                         writer.writerow([
                             clean_str(track_path),
                             clean_str(suggested_track_path),
-                            clean_str(album_info.canonical_artist),
-                            clean_str(album_info.canonical_album_title),
+                            clean_str(album_info.artist),
+                            clean_str(album_info.album_title),
                             album_info.year or '',
                             clean_str(album_info.top_category),
                             clean_str(album_info.sub_category) if album_info.sub_category else '',
                             result.album_info.track_count,
-                            f"{album_info.confidence_score:.2f}"
+                            f"{album_info.confidence:.2f}"
                         ])
         
         logger.info(f"Detailed track plan saved to: {csv_file}")
@@ -530,8 +574,8 @@ class AlbumMusicPipeline:
         """Create a canonical key for an album for de-duplication."""
         tags = sorted(set(info.format_tags or []))
         year = info.year or ''
-        title = (info.canonical_album_title or '').strip().lower()
-        artist = (info.canonical_artist or '').strip().lower()
+        title = (info.album_title or '').strip().lower()
+        artist = (info.artist or '').strip().lower()
         return f"{artist}::{title}::{year}::{','.join(tags)}"
 
     def _dedupe_album_results(self, results: List[AlbumProcessingResult]) -> List[AlbumProcessingResult]:
@@ -599,7 +643,7 @@ class AlbumMusicPipeline:
             if result.success and result.final_album_info and result.album_info:
                 try:
                     source_dir = result.album_info.album_path
-                    dest_dir = result.final_album_info.suggested_album_dir
+                    dest_dir = Path(result.final_album_info.final_path)
                     
                     # Create destination directory
                     dest_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -639,11 +683,11 @@ class AlbumMusicPipeline:
                 result_categories[category] = []
             result_categories[category].append({
                 'original': str(result.album_info.album_path.name),
-                'result': str(final_info.suggested_album_dir.name),
-                'artist': final_info.canonical_artist,
+                'result': str(Path(final_info.final_path).name),
+                'artist': final_info.artist,
                 'tracks': result.album_info.track_count
             })
-            result_folders.add(str(final_info.suggested_album_dir))
+            result_folders.add(str(final_info.final_path))
         
         # Write folder summary
         summary_file = self.output_dir / "folder_summary.txt"
@@ -693,7 +737,7 @@ class AlbumMusicPipeline:
         artist_bundles = {}
         for result in successful:
             if result.final_album_info:
-                artist = result.final_album_info.canonical_artist
+                artist = result.final_album_info.artist
                 if artist not in artist_bundles:
                     artist_bundles[artist] = []
                 artist_bundles[artist].append(result)
@@ -765,7 +809,7 @@ class AlbumMusicPipeline:
                     # Show album details
                     for album in albums[:3]:  # Show first 3 albums
                         if album.final_album_info:
-                            f.write(f"     - {album.final_album_info.canonical_album_title}\n")
+                            f.write(f"     - {album.final_album_info.album_title}\n")
                     if len(albums) > 3:
                         f.write(f"     ... and {len(albums) - 3} more albums\n")
             

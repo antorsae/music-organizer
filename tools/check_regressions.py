@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
-Quick regression checker for album-level classification rules.
+Regression checker for v2 album-level classification using LLM persona.
 
 Parses tests/regression_album_cases.txt lines of the form:
   Artist - Album => Expected
 
-Then constructs synthetic AlbumInfo + EnrichedAlbumInfo and runs
-AlbumStage4Canonicalization to verify top_category[/sub_category].
+Then constructs synthetic AlbumInfo and runs the AlbumProcessorLLM
+to verify classification against expected results. Uses caching to avoid
+redundant API calls.
 
-This avoids LLM calls and full library scans, and runs fast.
+NOTE: This version requires API calls since all logic is now in the LLM persona.
 """
 import re
+import os
 from pathlib import Path
 from typing import Tuple, Optional
 
@@ -20,11 +22,14 @@ CASES_FILE = ROOT / "tests" / "regression_album_cases.txt"
 import sys
 sys.path.insert(0, str(ROOT))
 
-from api.schemas import AlbumInfo, EnrichedAlbumInfo
-from pipeline.album_stages import AlbumStage4Canonicalization
+from api.schemas import AlbumInfo
+from api.client import ResilientAPIClient
+from pipeline.album_stages import AlbumProcessorLLM
+from utils.config_loader import load_config
 
 
 def parse_case(line: str) -> Optional[Tuple[str, str, str]]:
+    """Parse a test case line."""
     line = line.strip()
     if not line or line.startswith('#'):
         return None
@@ -37,20 +42,20 @@ def parse_case(line: str) -> Optional[Tuple[str, str, str]]:
 
 
 def expected_tuple(expected: str) -> Tuple[str, Optional[str]]:
-    # Expected can be "Jazz" or "Soundtracks/Film" etc.
+    """Convert expected string to top_category/sub_category tuple."""
     if '/' in expected:
         top, sub = expected.split('/', 1)
         return top.strip(), sub.strip()
     return expected.strip(), None
 
 
-def classify_case(artist: str, album: str) -> Tuple[str, Optional[str]]:
-    # Build minimal AlbumInfo
+def classify_case(processor: AlbumProcessorLLM, artist: str, album: str) -> Tuple[str, Optional[str]]:
+    """Classify a test case using the LLM processor."""
+    # Build minimal AlbumInfo for testing
     fake_root = Path("/tmp/music_regression_root")
     artist_dir = artist
     album_dir = album
     album_path = fake_root / artist_dir / album_dir
-    # parent_dirs should lead back to fake_root when popped by Stage4
     parent_dirs = [artist_dir]
 
     album_info = AlbumInfo(
@@ -63,30 +68,38 @@ def classify_case(artist: str, album: str) -> Tuple[str, Optional[str]]:
         has_disc_structure=False,
         disc_subdirs=[],
         total_size_mb=500.0,
-        sample_metadata={}
+        sample_metadata={"artist": artist, "album": album}  # Add some metadata context
     )
 
-    # Build EnrichedAlbumInfo with minimal fields
-    enriched = EnrichedAlbumInfo(
-        artist=artist,
-        album_title=album,
-        year=None,
-        total_tracks=10,
-        disc_count=1,
-        genres=["Unknown"],
-        moods=["Unknown"],
-        style_tags=["Unknown"],
-        target_audience=["General"],
-        energy_level=3,
-        is_compilation=False,
-    )
-
-    stage4 = AlbumStage4Canonicalization()
-    final = stage4.process(enriched, album_info)
-    return final.top_category, final.sub_category
+    try:
+        final_info = processor.process(album_info)
+        return final_info.top_category, final_info.sub_category
+    except Exception as e:
+        print(f"Error processing {artist} - {album}: {e}")
+        return "Error", None
 
 
 def main() -> int:
+    """Run regression tests."""
+    # Check for API key
+    if not os.getenv('OPENAI_API_KEY'):
+        print("ERROR: OPENAI_API_KEY not set. Regression tests require API access.")
+        return 1
+    
+    # Load configuration
+    config = load_config()
+    
+    # Initialize API client and processor
+    api_client = ResilientAPIClient(
+        max_retries=config['api']['max_retries'],
+        timeout=config['api']['timeout_seconds']
+    )
+    
+    # Use a fast model for regression tests if available, otherwise use configured model
+    model_name = "gpt-4o-mini"  # Cheaper and faster for regression tests
+    processor = AlbumProcessorLLM(api_client, model_name)
+    
+    # Load test cases
     cases = []
     with open(CASES_FILE, 'r', encoding='utf-8') as f:
         for line in f:
@@ -95,24 +108,41 @@ def main() -> int:
                 cases.append(parsed)
 
     total = len(cases)
+    if total == 0:
+        print("No test cases found.")
+        return 0
+    
+    print(f"Running {total} regression tests with model {model_name}...")
+    print("(Using LLM calls - results will be more accurate but slower)")
+    
     passed = 0
     failures = []
 
-    for artist, album, expected in cases:
+    for i, (artist, album, expected) in enumerate(cases, 1):
+        if i % 10 == 0:
+            print(f"Progress: {i}/{total}")
+            
         want_top, want_sub = expected_tuple(expected)
-        got_top, got_sub = classify_case(artist, album)
+        got_top, got_sub = classify_case(processor, artist, album)
+        
         ok = (got_top == want_top) and ((want_sub or None) == (got_sub or None))
         if ok:
             passed += 1
         else:
-            failures.append((artist, album, expected, f"{got_top}" + (f"/{got_sub}" if got_sub else "")))
+            got_str = got_top + (f"/{got_sub}" if got_sub else "")
+            failures.append((artist, album, expected, got_str))
 
+    print(f"\nRegression test results:")
     print(f"Checked {total} cases: {passed} passed, {len(failures)} failed.")
+    print(f"Success rate: {passed/total*100:.1f}%")
+    
     if failures:
-        print("\nFailures:")
+        print(f"\n{len(failures)} Failures:")
         for a, al, exp, got in failures:
             print(f" - {a} - {al}: expected {exp}, got {got}")
         return 1
+    
+    print("All regression tests passed! ✅")
     return 0
 
 
