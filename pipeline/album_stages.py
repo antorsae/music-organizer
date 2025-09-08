@@ -20,16 +20,18 @@ class AlbumProcessorLLM:
     to extract, enrich, and canonicalize album information in one call.
     """
     
-    def __init__(self, api_client: ResilientAPIClient, model_name: str):
+    def __init__(self, api_client: ResilientAPIClient, model_name: str, include_tracklist: bool = False):
         """
         Initialize the processor.
         
         Args:
             api_client: API client for LLM communication
             model_name: LLM model to use (e.g., "gpt-4o", "gpt-5")
+            include_tracklist: Whether to include full tracklist in prompts for enhanced context
         """
         self.api_client = api_client
         self.model_name = model_name
+        self.include_tracklist = include_tracklist
         self.system_prompt = self._load_system_prompt()
     
     def _load_system_prompt(self) -> str:
@@ -58,7 +60,7 @@ class AlbumProcessorLLM:
         logger.info(f"Processing album: {album_info.album_name}")
         
         # Build comprehensive user prompt with all available data
-        user_prompt = self._build_user_prompt(album_info)
+        user_prompt = self._build_comprehensive_user_prompt(album_info, self.include_tracklist)
         
         # Make single LLM call with system prompt and user data
         result = self.api_client.get_structured_response(
@@ -75,59 +77,108 @@ class AlbumProcessorLLM:
         
         return result
     
-    def _build_user_prompt(self, album_info: AlbumInfo) -> str:
+    def _build_comprehensive_user_prompt(self, album_info: AlbumInfo, include_tracklist: bool) -> str:
         """
-        Build a comprehensive user prompt containing all album data.
+        Build the comprehensive user prompt with all available context.
         
         Args:
             album_info: Album information to include in prompt
+            include_tracklist: Whether to include full tracklist for enhanced context
             
         Returns:
-            Formatted prompt string
+            Formatted prompt string with comprehensive context
         """
-        # Format parent directories as breadcrumb
-        parent_path = " > ".join(album_info.parent_dirs) if album_info.parent_dirs else "/"
-        
-        # Format disc structure info
-        disc_info = ""
-        if album_info.has_disc_structure and album_info.disc_subdirs:
-            disc_list = ", ".join(album_info.disc_subdirs)
-            disc_info = f"\n- Disc Structure: {len(album_info.disc_subdirs)} discs ({disc_list})"
-        
-        # Extract key metadata samples
-        metadata_summary = self._summarize_metadata(album_info.sample_metadata)
-        
-        # Format track listing (first 10 tracks for context)
-        track_sample = album_info.track_files[:10]
-        if len(album_info.track_files) > 10:
-            track_sample.append(f"... and {len(album_info.track_files) - 10} more tracks")
-        track_listing = "\n".join([f"  {i+1:02d}. {track}" for i, track in enumerate(track_sample)])
-        
-        return f"""
-Please analyze and classify this music album:
+        # 1. Get Parent Folder Context
+        parent_folder = album_info.parent_dirs[-1] if album_info.parent_dirs else "N/A"
 
-## Album Information
-- **Folder Name**: {album_info.album_name}
-- **Parent Directory Path**: {parent_path}
-- **Track Count**: {album_info.track_count} tracks
-- **Total Size**: {album_info.total_size_mb:.1f} MB{disc_info}
+        # 2. Get Album Folder
+        album_folder = album_info.album_name
 
-## Track Listing
-{track_listing}
+        # 3. Get Track Filenames (conditionally)
+        tracklist_str = "Not provided."
+        # For simplicity, let's always include it for now if the flag is on.
+        # A more advanced version could detect ambiguity.
+        if include_tracklist and album_info.track_files:
+            # Format track listing (show first 15 tracks)
+            tracks_to_show = album_info.track_files[:15]
+            track_lines = [f"- {track}" for track in tracks_to_show]
+            tracklist_str = "\n".join(track_lines)
+            if len(album_info.track_files) > 15:
+                tracklist_str += f"\n- ... and {len(album_info.track_files) - 15} more tracks"
 
-## Metadata Sample
-{metadata_summary}
+        # 4. Get Metadata Sample
+        metadata_str = "Not available."
+        if album_info.sample_metadata:
+            metadata_items = [f"- {k}: {v}" for k, v in album_info.sample_metadata.items() if v]
+            if metadata_items:
+                metadata_str = "\n".join(metadata_items)
 
-## Analysis Required
-Based on this information, determine the correct classification, normalization, and final organization path for this album. Apply all persona rules strictly, including:
+        # 5. Assemble the final prompt
+        prompt = f"""
+Analyze the following album using all available context to determine its correct organization.
 
-1. Classification according to the decision tree (Soundtracks → Classical → Jazz → Electronic → Compilations & VA → Library)
-2. Quality control gates for genre traps and artist-specific rules
-3. Normalization of artist/album names (aliases, CJK translation, format tags)
-4. Generation of the final directory path
+### Input Data
+
+**1. Parent Folder:**
+{parent_folder}
+
+**2. Album Folder:**
+{album_folder}
+
+**3. Track Filenames:**
+{tracklist_str}
+
+**4. Metadata Sample:**
+{metadata_str}
+
+### Analysis Required
+
+Using the context priority rules (Parent Folder → Track Filenames → Album Folder → Metadata), determine:
+
+1. **Artist Identification**: Use Parent Folder as the strongest signal for artist identity
+2. **Album Classification**: Apply the decision tree (Soundtracks → Classical → Jazz → Electronic → Compilations & VA → Library → Unknown)
+3. **Genre Trap Detection**: Use Track Filenames to resolve ambiguous album titles
+4. **Normalization**: Apply all cleanup, alias resolution, and CJK translation rules
+5. **Quality Gates**: Apply all artist-specific and category-specific quality control rules
+
+**Critical**: For single-artist collections like "Greatest Hits", the Parent Folder definitively identifies the artist. Use Track Filenames to verify and resolve any ambiguity in generic album titles.
 
 Respond with the JSON object containing all required fields.
 """
+        return self._sanitize_unicode(prompt)  # Ensure we sanitize the final prompt
+    
+    def _sanitize_unicode(self, text: str) -> str:
+        """
+        Sanitize Unicode text to prevent encoding errors.
+        
+        Args:
+            text: Input text that may contain problematic Unicode
+            
+        Returns:
+            Sanitized text safe for UTF-8 encoding
+        """
+        try:
+            # First, try to encode/decode to catch surrogate errors
+            text.encode('utf-8')
+            return text
+        except UnicodeEncodeError:
+            logger.debug("Found problematic Unicode characters, sanitizing...")
+            
+            # Replace or remove problematic characters
+            sanitized_chars = []
+            for char in text:
+                try:
+                    # Test if this character can be encoded
+                    char.encode('utf-8')
+                    sanitized_chars.append(char)
+                except UnicodeEncodeError:
+                    # Replace problematic characters with a safe alternative
+                    sanitized_chars.append('?')
+            
+            sanitized_text = ''.join(sanitized_chars)
+            logger.debug(f"Sanitized text: removed/replaced {len(text) - len([c for c in sanitized_chars if c != '?'])} problematic characters")
+            
+            return sanitized_text
     
     def _summarize_metadata(self, metadata: Dict[str, Any]) -> str:
         """

@@ -37,13 +37,15 @@ class AlbumMusicPipeline:
         config: Dict[str, Any], 
         enable_llm: bool = True,
         output_dir: Path = None,
-        model_name: str = None
+        model_name: str = None,
+        include_tracklist: bool = False
     ):
         """Initialize the album-level music processing pipeline."""
         self.config = config
         self.enable_llm = enable_llm
         self.output_dir = output_dir or Path.cwd()
         self.model_name = model_name or config['api'].get('openai_model_extraction', 'gpt-5')
+        self.include_tracklist = include_tracklist
         
         # Initialize components
         self.filesystem_ops = FileSystemOperations(
@@ -76,7 +78,8 @@ class AlbumMusicPipeline:
         if enable_llm:
             self.album_processor = AlbumProcessorLLM(
                 self.api_client, 
-                self.model_name
+                self.model_name,
+                self.include_tracklist
             )
         else:
             self.album_processor = None

@@ -85,6 +85,12 @@ Examples:
         type=Path,
         help="Directory for output files (default: <music_dir>/_music_claude_output)"
     )
+    
+    parser.add_argument(
+        "--include-tracklist",
+        action="store_true",
+        help="Always include the full tracklist in the LLM prompt for maximum context"
+    )
 
     return parser.parse_args()
 
@@ -147,7 +153,8 @@ def main() -> int:
             config=config,
             enable_llm=not args.no_llm,
             output_dir=output_dir,
-            model_name=args.model if not args.no_llm else None
+            model_name=args.model if not args.no_llm else None,
+            include_tracklist=args.include_tracklist
         )
         
         # Process music library
