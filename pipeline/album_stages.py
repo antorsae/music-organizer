@@ -80,11 +80,14 @@ class AlbumProcessorLLM:
             max_tokens=2000   # Sufficient for comprehensive response
         )
         
-        # Add track normalization if requested
+        # Add track normalization if requested (separate LLM call)
         if self.normalize_tracks and self.track_processor:
             try:
                 track_normalization = self.track_processor.process_tracks(album_info)
-                result.track_normalization = track_normalization
+                # Create a new result with track normalization
+                result_dict = result.model_dump()
+                result_dict['track_normalization'] = track_normalization
+                result = FinalAlbumInfo.model_validate(result_dict)
                 logger.debug(f"Track normalization added: {len(track_normalization.track_renamings)} tracks")
             except Exception as e:
                 logger.warning(f"Track normalization failed for {album_info.album_name}: {e}")
