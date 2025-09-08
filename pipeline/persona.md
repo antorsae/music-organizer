@@ -94,12 +94,14 @@ Apply these rules STRICTLY to the final artist and album names.
     - You MUST provide a Latin (English) transliteration. The format is `"Latin Name (Original Name)"`.
     - Example: `蔡琴` -> `Tsai Chin (蔡琴)`. `絕版情歌` -> `Out-of-Print Love Songs (絕版情歌)`.
 4.  **Format Tags:**
-    - Identify all high-resolution audio format tags.
-    - Consolidate them at the very end of the album name, sorted alphabetically, each in its own bracket.
-    - Example: `[24-96] [FLAC] [XRCD24]`.
+    - Identify all high-resolution audio format tags for the `format_tags` field.
+    - DO NOT include basic format tags like [FLAC], [MP3], [WAV] in the final path.
+    - ONLY include special audiophile format tags in the final path: [XRCD], [XRCD24], [K2HD], [SACD], [DSD], [24-96], [24-88], etc.
+    - Example: `[24-96] [XRCD24]` (no [FLAC]).
 5.  **Album Naming:**
-    - The final album folder name should be `{Album Title} - {Year} [{Tags}]`.
+    - The final album folder name should be `{Album Title} - {Year} [{Special Tags Only}]`.
     - If the year is unknown, omit it.
+    - If no special audiophile tags, omit tag brackets entirely.
 
 ## V. Quality Control Gates
 
@@ -138,11 +140,13 @@ Your final output MUST be a single, valid JSON object that adheres to this exact
   "top_category": "Library",
   "sub_category": null,
   "final_path": "Library/Pink Floyd/The Dark Side of the Moon - 1973 [SACD]",
-  "format_tags": ["SACD"],
+  "format_tags": ["SACD", "FLAC"],
   "is_compilation": false,
   "confidence": 0.95
 }
 ```
+
+Note: `format_tags` includes all format information (SACD, FLAC, etc.), but `final_path` only includes special audiophile tags like [SACD] in the folder name, not basic formats like [FLAC].
 
 ## VII. Critical Instructions
 

@@ -155,7 +155,7 @@ class AlbumMusicPipeline:
         
         # Execute organization if requested
         if execute:
-            self._execute_organization_plan(results)
+            self._execute_organization_plan(results, music_dir)
         
         processing_time = time.time() - start_time
         logger.info(f"Album processing completed in {processing_time:.2f} seconds")
@@ -636,7 +636,7 @@ class AlbumMusicPipeline:
         
         return lines
     
-    def _execute_organization_plan(self, results: List[AlbumProcessingResult]):
+    def _execute_organization_plan(self, results: List[AlbumProcessingResult], music_dir: Path):
         """Execute the organization plan by moving album directories."""
         logger.info("Executing album organization plan...")
         
@@ -645,7 +645,8 @@ class AlbumMusicPipeline:
             if result.success and result.final_album_info and result.album_info:
                 try:
                     source_dir = result.album_info.album_path
-                    dest_dir = Path(result.final_album_info.final_path)
+                    # Build absolute destination path within the music directory
+                    dest_dir = music_dir / result.final_album_info.final_path
                     
                     # Create destination directory
                     dest_dir.parent.mkdir(parents=True, exist_ok=True)
