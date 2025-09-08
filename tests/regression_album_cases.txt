@@ -1,0 +1,36 @@
+# Simple regression cases: "Artist - Album" => Expected bucket
+
+# Pop/Rock should be Library (avoid Electronic)
+A-ha - Hunting High and Low => Library
+Duran Duran - Decade => Library
+Duran Duran - The Essential Collection => Library
+Mecano - Descanso Dominical => Library
+Muse - Black Holes and Revelations => Library
+Emerson, Lake & Palmer - Pictures at an Exhibition => Library
+Book of Love - Book of Love => Library
+Ani DiFranco - Up Up Up Up Up Up => Library
+
+# Electronic stays Electronic
+Jean-Michel Jarre - Oxygène => Electronic
+Daft Punk - Random Access Memories => Electronic
+Magic Sword - Volume 1 (Deluxe) => Electronic
+
+# Jazz artists/labels
+Bill Evans - Waltz for Debby => Jazz
+Art Pepper - + Eleven => Jazz
+Gerry Mulligan - Night Lights => Jazz
+Arne Domnérus - Antiphone Blues => Jazz
+Ben Webster - At the Renaissance => Jazz
+Barney Kessel / Shelly Manne / Ray Brown - The Poll Winners => Jazz
+Red Garland - Groovy => Jazz
+
+# Soundtracks / Film (Ghibli)
+Joe Hisaishi - My Neighbor Totoro => Soundtracks/Film
+Chage & Aska - On Your Mark (1995) => Soundtracks/Film
+Czech Philharmonic Orchestra - Plays Studio Ghibli Symphonic Collection (2005) => Soundtracks/Film
+
+# Compilations vs Single-artist
+Queen - Greatest Hits I II (2011 Remasters) => Library
+Tina Turner - Private Dancer [XRCD] => Library
+Tony Bennett & Bill Evans - The Tony Bennett Bill Evans Album => Jazz
+Various Artists - Max Mix Vol. 5 => Compilations & VA

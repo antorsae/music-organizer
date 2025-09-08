@@ -358,13 +358,16 @@ class AlbumMusicPipeline:
     def _generate_output_files(self, results: List[AlbumProcessingResult]):
         """Generate output files with album processing results."""
         logger.info("Generating output files...")
-        
+
         successful_results = [r for r in results if r.success and r.final_album_info]
-        
+
         if not successful_results:
             logger.warning("No successful results to generate outputs for")
             return
-        
+
+        # Dedupe and normalize tags before rendering outputs
+        successful_results = self._dedupe_album_results(successful_results)
+
         # Generate directory tree preview (by album)
         self._generate_album_directory_tree(successful_results)
         
@@ -521,6 +524,32 @@ class AlbumMusicPipeline:
             print(f"  {cat}: {count} albums")
         
         logger.info(f"Album summary saved to: {summary_file}")
+
+    # -------------------- De-duplication helpers --------------------
+    def _canonical_album_key(self, info: FinalAlbumInfo) -> str:
+        """Create a canonical key for an album for de-duplication."""
+        tags = sorted(set(info.format_tags or []))
+        year = info.year or ''
+        title = (info.canonical_album_title or '').strip().lower()
+        artist = (info.canonical_artist or '').strip().lower()
+        return f"{artist}::{title}::{year}::{','.join(tags)}"
+
+    def _dedupe_album_results(self, results: List[AlbumProcessingResult]) -> List[AlbumProcessingResult]:
+        """Collapse duplicate albums and normalize tag lists."""
+        seen = {}
+        deduped: List[AlbumProcessingResult] = []
+        for r in results:
+            info = r.final_album_info
+            if not info:
+                continue
+            # normalize tags once
+            info.format_tags = sorted(set(info.format_tags or []))
+            key = self._canonical_album_key(info)
+            if key in seen:
+                continue
+            seen[key] = True
+            deduped.append(r)
+        return deduped
     
     def _build_directory_tree(self, paths: List[Path]) -> Dict[str, Any]:
         """Build a nested dictionary representing the directory tree."""

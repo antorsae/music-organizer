@@ -24,6 +24,20 @@ from utils.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+# Directories/series that should not bias classification when seen in parent folders
+FORMAT_SERIES_DIRS = {
+    'xrcd', 'xr-cd', 'xr-cd24', 'xrcd24', 'xrcd2', 'k2hd', 'k2', 'shm-cd', 'mfsl', 'dcc',
+    'hdcd', 'sacd', 'dsd', '24-88', '24-96', '24-192', 'tbm', 'three blind mice',
+    'max mix', 'jvc xrcd', 'sampler'
+}
+
+def _normalized_parents(parents: List[str]) -> List[str]:
+    """Normalize parent directory names and drop known format/series folders."""
+    def clean(p: str) -> str:
+        q = p.lower().strip().strip(" []()._-")
+        return q
+    return [p for p in (clean(x) for x in parents) if p and p not in FORMAT_SERIES_DIRS]
+
 
 @dataclass
 class ComposerAliases:
@@ -369,8 +383,9 @@ Soundtracks has subgenres: /Soundtracks/{Film|TV|Game|Stage & Musicals}/TITLE (Y
         if len(album_info.track_files) > 10:
             track_list += f"\n  ... and {len(album_info.track_files) - 10} more tracks"
         
-        # Parent directory context
-        parent_path = " > ".join(album_info.parent_dirs) if album_info.parent_dirs else "None"
+        # Parent directory context (ignore format/series folders)
+        norm_parents = _normalized_parents(album_info.parent_dirs)
+        parent_path = " > ".join(norm_parents) if norm_parents else "None"
         
         return f"""
 Extract album information from this music collection following these normalization rules:
@@ -625,6 +640,11 @@ class AlbumStage4Canonicalization:
         genres_text = ' '.join(genres_lower)
         album_lower = enriched_info.album_title.lower() if enriched_info.album_title else ""
         artist_lower = enriched_info.artist.lower() if enriched_info.artist else ""
+
+        # Safety net (pre): short-circuit obvious artist-based misroutes
+        pre = self._safety_net_pre(genres_lower, artist_lower, album_lower)
+        if pre:
+            return pre[0], pre[1], pre[2]
         
         # A) Check for Soundtracks FIRST
         soundtrack_indicators = [
@@ -694,7 +714,7 @@ class AlbumStage4Canonicalization:
         
         # Collection-type album titles that could be single artist OR compilation
         collection_titles = [
-            'greatest hits', 'best of', 'collection', 'anthology', 'essential',
+            'greatest hits', 'best of', 'collection', 'anthology', 'essential', 'essentials',
             'ultimate', 'gold', 'platinum', 'complete'
         ]
         
@@ -744,6 +764,15 @@ class AlbumStage4Canonicalization:
         if is_true_compilation:
             return "Compilations & VA", None, None
         
+        # Jazz label/series hints (folder/album tokens)
+        JAZZ_LABEL_HINTS = {
+            'blue note', 'prestige', 'riverside', 'contemporary', 'tbm', 'three blind mice',
+            'dcc', 'audio wave'
+        }
+        label_context = f"{album_info.album_name} {' '.join(album_info.parent_dirs)}".lower()
+        if any(lbl in label_context for lbl in JAZZ_LABEL_HINTS):
+            return "Jazz", None, None
+
         # D) Check for Jazz
         jazz_indicators = [
             'jazz', 'blues', 'swing', 'bebop', 'fusion', 'smooth jazz',
@@ -771,7 +800,8 @@ class AlbumStage4Canonicalization:
             return "Electronic", None, None
         
         # F) Default to Library for everything else
-        return "Library", None, None
+        top, sub = self._safety_net_post("Library", None, artist_lower, album_lower)
+        return top, sub, None
     
     def _identify_composer(self, enriched_info: EnrichedAlbumInfo) -> Optional[str]:
         """Identify if this is a single-composer classical album."""
@@ -836,7 +866,7 @@ class AlbumStage4Canonicalization:
         return None
     
     def _apply_quality_gates(self, enriched_info: EnrichedAlbumInfo, album_info: AlbumInfo,
-                            top_category: str, sub_category: Optional[str]) -> Tuple[str, Optional[str]]:
+                             top_category: str, sub_category: Optional[str]) -> Tuple[str, Optional[str]]:
         """Apply quality gates to correct misclassifications."""
         
         album_lower = enriched_info.album_title.lower() if enriched_info.album_title else ""
@@ -916,6 +946,13 @@ class AlbumStage4Canonicalization:
         if 'game of thrones' in album_lower:
             logger.info(f"Quality Gate: Moving Game of Thrones to Soundtracks/TV")
             return "Soundtracks", "TV"
+
+        # Quality Gate: single-artist hits must stay with the artist, not Compilations
+        if top_category == "Compilations & VA":
+            solo_hits_artists = {'queen', 'tina turner', 'steely dan', 'dire straits'}
+            if any(a in artist_lower for a in solo_hits_artists):
+                logger.info("Quality Gate: Moving single-artist hits collection to Library")
+                return "Library", None
         
         # Quality Gate 11: Mario Brunello (cellist) - Classical, not Game
         if 'mario brunello' in artist_lower and ('cello' in album_lower or 'sonata' in album_lower):
@@ -959,6 +996,11 @@ class AlbumStage4Canonicalization:
         if 'yamadas' in album_lower or 'my neighbors the yamadas' in album_lower:
             logger.info(f"Quality Gate: Moving Yamadas (Studio Ghibli) to Soundtracks/Film")
             return "Soundtracks", "Film"
+
+        # Post safety: Rock adaptations of classical (ELP Pictures…) => Library
+        if 'emerson, lake & palmer' in artist_lower and 'pictures at an exhibition' in album_lower:
+            logger.info("Quality Gate: Moving ELP 'Pictures at an Exhibition' to Library")
+            return "Library", None
         
         return top_category, sub_category
     
@@ -1041,6 +1083,9 @@ class AlbumStage4Canonicalization:
                 'my neighbors the yamadas', 'yamadas', 'marnie', 'the wind rises',
                 'princess mononoke', 'ocean waves', 'from up on poppy hill'
             ]
+
+            # Include non-feature short "On Your Mark" (1995)
+            ghibli_terms.append('on your mark')
             
             # Check both album title and artist (Joe Hisaishi often does Ghibli)
             if (any(term in album_lower for term in ghibli_terms) or
@@ -1282,8 +1327,39 @@ class AlbumStage4Canonicalization:
             if re.search(pattern, text, re.IGNORECASE):
                 if tag not in found_tags:  # Avoid duplicates
                     found_tags.append(tag)
-        
-        return found_tags
+
+        # Normalize order and uniqueness
+        return sorted(set(found_tags))
+
+    # --- Safety Nets -------------------------------------------------------
+    # Iconic pop/rock and jazz artists to prevent misroutes
+    POP_ROCK_LIBRARY = {
+        'a-ha', 'aha', 'duran duran', 'mecano', 'muse', 'queen', 'tina turner',
+        'steely dan', 'dire straits', 'adele', 'beach boys', 'emerson, lake & palmer',
+        'ani difranco', 'book of love'
+    }
+
+    JAZZ_SAFETY = {
+        'bill evans', 'miles davis', 'john coltrane', 'cannonball adderley', 'chet baker',
+        'sonny rollins', 'thelonious monk', 'art blakey', 'horace silver', 'kenny dorham',
+        'lee morgan', 'hank mobley', 'gerry mulligan', 'barney kessel', 'ben webster',
+        'red garland', 'winton kelly', 'tsuyoshi yamamoto', 'arne domnérus', 'arne domnerus'
+    }
+
+    def _safety_net_pre(self, genres_lower: List[str], artist_lower: str, album_lower: str):
+        # If artist is iconic pop/rock => Library
+        if any(a in artist_lower for a in self.POP_ROCK_LIBRARY):
+            return ("Library", None, None)
+        # If unmistakably jazz artist => Jazz
+        if any(a in artist_lower for a in self.JAZZ_SAFETY):
+            return ("Jazz", None, None)
+        return None
+
+    def _safety_net_post(self, top_category: str, sub_category: Optional[str], artist_lower: str, album_lower: str):
+        # Rock adaptations of classical (ELP Pictures…) => Library
+        if 'emerson, lake & palmer' in artist_lower and 'pictures at an exhibition' in album_lower:
+            return "Library", None
+        return top_category, sub_category
     
     def _sanitize_filename(self, filename: str, max_length: int = 200) -> str:
         """Sanitize filename for cross-platform compatibility."""
