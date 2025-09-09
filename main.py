@@ -97,6 +97,14 @@ Examples:
         action="store_true",
         help="Include track filename normalization in the processing"
     )
+    
+    parser.add_argument(
+        "--track-model",
+        type=str,
+        default="gpt-5-nano",
+        choices=["gpt-4o", "gpt-4o-mini", "gpt-5", "gpt-5-mini", "gpt-5-nano"],
+        help="LLM model to use for track normalization (default: gpt-5-nano for speed)"
+    )
 
     return parser.parse_args()
 
@@ -161,7 +169,8 @@ def main() -> int:
             output_dir=output_dir,
             model_name=args.model if not args.no_llm else None,
             include_tracklist=args.include_tracklist,
-            normalize_tracks=args.normalize_tracks
+            normalize_tracks=args.normalize_tracks,
+            track_model=args.track_model if args.normalize_tracks else None
         )
         
         # Process music library

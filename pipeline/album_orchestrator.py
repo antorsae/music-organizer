@@ -38,7 +38,8 @@ class AlbumMusicPipeline:
         output_dir: Path = None,
         model_name: str = None,
         include_tracklist: bool = False,
-        normalize_tracks: bool = False
+        normalize_tracks: bool = False,
+        track_model: str = None
     ):
         """Initialize the album-level music processing pipeline."""
         self.config = config
@@ -47,6 +48,7 @@ class AlbumMusicPipeline:
         self.model_name = model_name or config['api'].get('openai_model_extraction', 'gpt-5')
         self.include_tracklist = include_tracklist
         self.normalize_tracks = normalize_tracks
+        self.track_model = track_model or 'gpt-5-nano'  # Default to fast model for track normalization
         
         # Initialize components
         self.filesystem_ops = FileSystemOperations(
@@ -863,9 +865,11 @@ class AlbumMusicPipeline:
         track_results = {}
         track_processor = None
         
-        # Initialize track processor
-        if self.enable_llm and self.album_processor and self.album_processor.track_processor:
-            track_processor = self.album_processor.track_processor
+        # Initialize track processor with dedicated model
+        track_processor = None
+        if self.enable_llm:
+            from pipeline.album_stages import TrackNormalizationProcessor
+            track_processor = TrackNormalizationProcessor(self.api_client, self.track_model)
         
         # Process each successful album for track normalization
         if track_processor:
