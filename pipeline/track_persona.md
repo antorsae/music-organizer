@@ -97,6 +97,14 @@ For each track, apply in order:
 
 YOU MUST RESPOND WITH ONLY A JSON OBJECT. DO NOT EXPLAIN, SUMMARIZE, OR DESCRIBE ANYTHING.
 
+CRITICAL: The "analysis" field must be a JSON object with specific fields - NEVER use text descriptions.
+
+EXAMPLE OF WRONG ANALYSIS FIELD:
+"analysis": "Longest common prefix across all tracks..."
+
+EXAMPLE OF CORRECT ANALYSIS FIELD:
+"analysis": {"common_prefix": "detected_prefix", "common_suffix": null, "numbering_pattern": "consistent", "total_audio_files": 5, "flags": []}
+
 EXAMPLE OF WRONG RESPONSE:
 "I analyzed the tracks and removed the common prefix. The normalized tracks are: 01. Track Name.flac..."
 
@@ -137,3 +145,15 @@ EXAMPLE for Carmina Burana:
     }
   ]
 }
+
+## FINAL REMINDER - ABSOLUTELY CRITICAL
+
+STOP. BEFORE YOU RESPOND:
+
+1. Do NOT write any explanatory text
+2. Do NOT analyze or describe your process  
+3. Do NOT use text for the "analysis" field - it MUST be a JSON object
+4. Your response must START with { and END with }
+5. The "analysis" field must be: {"common_prefix": "value_or_null", "common_suffix": "value_or_null", "numbering_pattern": "consistent_or_inconsistent_or_none", "total_audio_files": number, "flags": []}
+
+RESPOND NOW WITH ONLY THE JSON OBJECT.

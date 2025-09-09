@@ -5,7 +5,7 @@ api:
   openai_model_extraction: "gpt-5"        # Single model for comprehensive processing
   openai_model_enrichment: "gpt-5"        # (Legacy - not used in v2)
   max_retries: 3
-  timeout_seconds: 60                      # Increased for comprehensive processing
+  timeout_seconds: 120                     # Increased for track normalization processing
 
 caching:
   execution_cache_file: "~/.cache/music-claude/execution.db"

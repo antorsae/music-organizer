@@ -21,6 +21,7 @@ from utils.exceptions import (
     APICommunicationError, APIRateLimitError, APITimeoutError, 
     APISchemaError, JSONParseError
 )
+from caching.cache_manager import L2APICache
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,10 @@ class ResilientAPIClient:
         max_retries: int = 3,
         base_delay: float = 1.0,
         max_delay: float = 60.0,
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        api_cache: Optional[L2APICache] = None,
+        api_cache_file: Optional[Path] = None,
+        cache_expiry_days: int = 30
     ):
         """
         Initialize the API client.
@@ -56,6 +60,8 @@ class ResilientAPIClient:
         self.base_delay = base_delay
         self.max_delay = max_delay
         self.timeout = timeout
+        # Optional L2 API cache
+        self.api_cache = api_cache or (L2APICache(api_cache_file, cache_expiry_days) if api_cache_file else None)
         
         # Statistics
         self.total_requests = 0
@@ -98,11 +104,49 @@ class ResilientAPIClient:
         
         # Enhanced prompt with schema
         enhanced_prompt = self._build_structured_prompt(prompt, schema)
+
+        # Prepare cache key metadata
+        schema_json = json.dumps(schema, sort_keys=True, ensure_ascii=False)
+        schema_sha256 = hashlib.sha256(schema_json.encode('utf-8')).hexdigest()
+        system_prompt_sha256 = hashlib.sha256(system_prompt.encode('utf-8')).hexdigest() if system_prompt else None
         
         logger.debug(f"Making API request to model: {model}")
         
         # Sanitize Unicode characters to prevent encoding errors
         enhanced_prompt = self._sanitize_unicode(enhanced_prompt)
+
+        # Determine effective token parameter and temperature for cache key
+        token_key = 'max_tokens'
+        token_value = max_tokens
+        effective_temperature = temperature
+        if model.startswith("gpt-5"):
+            if "nano" in model:
+                gpt5_max_tokens = max(max_tokens * 8, 20000)
+            elif "mini" in model:
+                gpt5_max_tokens = max(max_tokens * 6, 15000)
+            else:
+                gpt5_max_tokens = max(max_tokens * 4, 10000)
+            token_key = 'max_completion_tokens'
+            token_value = gpt5_max_tokens
+            effective_temperature = 1.0  # GPT-5 default
+
+        cache_kwargs = {
+            'response_model': response_model.__name__,
+            'schema_sha256': schema_sha256,
+            'system_prompt_sha256': system_prompt_sha256,
+            'effective_temperature': effective_temperature,
+            token_key: token_value,
+        }
+
+        # Try cache before making any API call
+        if self.api_cache is not None:
+            try:
+                cached = self.api_cache.get_cached_response(enhanced_prompt, model, **cache_kwargs)
+                if cached is not None:
+                    logger.debug("Returning response from L2 API cache")
+                    return response_model.model_validate(cached)
+            except Exception as e:
+                logger.warning(f"L2 cache read failed, proceeding without cache: {e}")
         
         for attempt in range(self.max_retries + 1):
             try:
@@ -126,14 +170,14 @@ class ResilientAPIClient:
                     # GPT-5 models need more tokens for completion
                     # Different variants may have different optimal token counts
                     if "nano" in model:
-                        # gpt-5-nano might be more concise
-                        gpt5_max_tokens = max(max_tokens * 2, 2000)  # At least 2000 tokens
+                        # gpt-5-nano can handle up to 128k output tokens - use generous limit
+                        gpt5_max_tokens = max(max_tokens * 8, 20000)  # Generous limit for complex tasks
                     elif "mini" in model:
                         # gpt-5-mini needs moderate token count
-                        gpt5_max_tokens = max(max_tokens * 3, 3000)  # At least 3000 tokens
+                        gpt5_max_tokens = max(max_tokens * 6, 15000)  # Increased limit
                     else:
                         # Full gpt-5 needs more tokens
-                        gpt5_max_tokens = max(max_tokens * 4, 4000)  # At least 4000 tokens
+                        gpt5_max_tokens = max(max_tokens * 4, 10000)  # At least 10000 tokens
                     
                     completion_params["max_completion_tokens"] = gpt5_max_tokens
                     logger.debug(f"Using token limit for {model}: {gpt5_max_tokens}")
@@ -181,6 +225,7 @@ class ResilientAPIClient:
                     if finish_reason == 'length':
                         error_msg = f"Response truncated due to token limit. Model: {model}, Current limit: {completion_params.get('max_completion_tokens', completion_params.get('max_tokens', 'unknown'))}"
                         logger.error(error_msg)
+                        # Token limit errors should not be retried - break immediately
                         raise APISchemaError(
                             response_model.__name__,
                             error_msg,
@@ -209,6 +254,13 @@ class ResilientAPIClient:
                         self.retried_requests += 1
                     
                     logger.debug(f"Successful API response after {attempt + 1} attempts")
+
+                    # Cache successful response
+                    if self.api_cache is not None:
+                        try:
+                            self.api_cache.cache_response(enhanced_prompt, model, validated_response.model_dump(), **cache_kwargs)
+                        except Exception as e:
+                            logger.warning(f"L2 cache write failed: {e}")
                     return validated_response
                     
                 except json.JSONDecodeError as e:
@@ -226,6 +278,13 @@ class ResilientAPIClient:
                                 self.retried_requests += 1
                             
                             logger.info("Successfully repaired and validated JSON response")
+
+                            # Cache successful repaired response
+                            if self.api_cache is not None:
+                                try:
+                                    self.api_cache.cache_response(enhanced_prompt, model, validated_response.model_dump(), **cache_kwargs)
+                                except Exception as e:
+                                    logger.warning(f"L2 cache write failed: {e}")
                             return validated_response
                             
                         except (json.JSONDecodeError, ValidationError) as repair_error:
@@ -280,6 +339,11 @@ class ResilientAPIClient:
                 else:
                     raise APICommunicationError(str(e), status_code)
             
+            except APISchemaError as e:
+                # Schema errors (including token limits) should not be retried - fail immediately
+                logger.error(f"Schema error - not retrying: {e}")
+                raise e
+                
             except Exception as e:
                 # Handle any other exceptions, including lower-level timeout errors
                 error_str = str(e).lower()

@@ -64,7 +64,9 @@ class AlbumMusicPipeline:
         if enable_llm:
             self.api_client = ResilientAPIClient(
                 max_retries=config['api']['max_retries'],
-                timeout=config['api']['timeout_seconds']
+                timeout=config['api']['timeout_seconds'],
+                api_cache_file=Path(config['caching']['api_cache_file']).expanduser(),
+                cache_expiry_days=config['caching']['cache_expiry_days']
             )
         else:
             self.api_client = None
@@ -1074,37 +1076,39 @@ class AlbumMusicPipeline:
             for result in results:
                 if result.success and result.album_info:
                     album_path_key = str(result.album_info.album_path)
+                    final_info = result.final_album_info
+                    
                     if album_path_key in track_results:
-                        final_info = result.final_album_info
                         track_norm = track_results[album_path_key]
                 
-                f.write(f"📁 {final_info.artist} - {final_info.album_title}\n")
-                f.write(f"   Path: {final_info.final_path}\n")
-                
-                if track_norm.analysis.flags:
-                    f.write(f"   ⚠️ Issues: {', '.join(track_norm.analysis.flags)}\n")
-                
-                if track_norm.analysis.common_prefix:
-                    f.write(f"   🔍 Common Prefix Removed: '{track_norm.analysis.common_prefix}'\n")
-                
-                changes = [t for t in track_norm.track_renamings if t.changed]
-                f.write(f"   📊 {len(changes)}/{len(track_norm.track_renamings)} tracks renamed\n")
-                
-                # Show some examples
-                if changes:
-                    f.write(f"   📝 Examples:\n")
-                    for change in changes[:3]:  # Show first 3 changes
-                        f.write(f"      {change.original_filename} → {change.new_filename}\n")
-                    if len(changes) > 3:
-                        f.write(f"      ... and {len(changes) - 3} more\n")
-                
-                f.write("\n")
-                
-                total_tracks += len(track_norm.track_renamings)
-                total_changes += len(changes)
+                        f.write(f"📁 {final_info.artist} - {final_info.album_title}\n")
+                        f.write(f"   Path: {final_info.final_path}\n")
+                        
+                        if track_norm.analysis.flags:
+                            f.write(f"   ⚠️ Issues: {', '.join(track_norm.analysis.flags)}\n")
+                        
+                        if track_norm.analysis.common_prefix:
+                            f.write(f"   🔍 Common Prefix Removed: '{track_norm.analysis.common_prefix}'\n")
+                        
+                        changes = [t for t in track_norm.track_renamings if t.changed]
+                        f.write(f"   📊 {len(changes)}/{len(track_norm.track_renamings)} tracks renamed\n")
+                        
+                        # Show some examples
+                        if changes:
+                            f.write(f"   📝 Examples:\n")
+                            for change in changes[:3]:  # Show first 3 changes
+                                f.write(f"      {change.original_filename} → {change.new_filename}\n")
+                            if len(changes) > 3:
+                                f.write(f"      ... and {len(changes) - 3} more\n")
+                        
+                        f.write("\n")
+                        
+                        total_tracks += len(track_norm.track_renamings)
+                        total_changes += len(changes)
             
             f.write(f"📊 SUMMARY\n")
-            f.write(f"Total albums with track normalization: {len(successful_results)}\n")
+            albums_with_normalization = len([r for r in results if r.success and r.album_info and str(r.album_info.album_path) in track_results])
+            f.write(f"Total albums with track normalization: {albums_with_normalization}\n")
             f.write(f"Total tracks analyzed: {total_tracks}\n")
             f.write(f"Total track renames needed: {total_changes} ({total_changes/total_tracks*100:.1f}%)\n")
         

@@ -59,7 +59,9 @@ class MusicPipeline:
         if enable_llm:
             self.api_client = ResilientAPIClient(
                 max_retries=config['api']['max_retries'],
-                timeout=config['api']['timeout_seconds']
+                timeout=config['api']['timeout_seconds'],
+                api_cache_file=Path(config['caching']['api_cache_file']).expanduser(),
+                cache_expiry_days=config['caching']['cache_expiry_days']
             )
         else:
             self.api_client = None

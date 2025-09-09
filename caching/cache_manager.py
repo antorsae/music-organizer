@@ -11,6 +11,7 @@ import sqlite3
 import hashlib
 import time
 import logging
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
@@ -178,6 +179,7 @@ class L2APICache:
         self.cache_file = cache_file
         self.expiry_days = expiry_days
         self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self._cache_data = self._load_cache()
     
     def _load_cache(self) -> Dict[str, Any]:
@@ -196,21 +198,24 @@ class L2APICache:
     def _save_cache(self):
         """Save cache to file."""
         try:
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(self._cache_data, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                with open(self.cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(self._cache_data, f, ensure_ascii=False, indent=2)
                 logger.debug(f"Saved API cache with {len(self._cache_data)} entries")
         except IOError as e:
             logger.warning(f"Error saving API cache: {e}")
     
     def _generate_cache_key(self, prompt: str, model: str, **kwargs) -> str:
-        """Generate a deterministic cache key for API requests."""
-        # Create a hash of the request parameters
+        """Generate a deterministic cache key for API requests.
+
+        Uses hashes of large inputs to keep the fingerprint compact and stable.
+        """
+        prompt_sha256 = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
         key_data = {
-            'prompt': prompt,
+            'prompt_sha256': prompt_sha256,
             'model': model,
-            **{k: v for k, v in kwargs.items() if k in ['temperature', 'max_tokens', 'max_completion_tokens']}
+            **kwargs,
         }
-        
         key_str = json.dumps(key_data, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
     
@@ -227,19 +232,21 @@ class L2APICache:
             Cached response data or None if not found/expired
         """
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
-        
-        if cache_key in self._cache_data:
-            cached_entry = self._cache_data[cache_key]
-            cached_time = cached_entry.get('timestamp', 0)
-            
-            # Check if cache entry is still valid
-            if time.time() - cached_time < (self.expiry_days * 24 * 3600):
-                logger.debug("API cache hit")
-                return cached_entry.get('response')
-            else:
-                # Remove expired entry
-                del self._cache_data[cache_key]
-                logger.debug("API cache entry expired, removed")
+
+        with self._lock:
+            if cache_key in self._cache_data:
+                cached_entry = self._cache_data[cache_key]
+                cached_time = cached_entry.get('timestamp', 0)
+
+                # Check if cache entry is still valid
+                if time.time() - cached_time < (self.expiry_days * 24 * 3600):
+                    logger.debug("API cache hit")
+                    return cached_entry.get('response')
+                else:
+                    # Remove expired entry and persist removal
+                    del self._cache_data[cache_key]
+                    logger.debug("API cache entry expired, removed")
+                    self._save_cache()
         
         return None
     
@@ -254,17 +261,16 @@ class L2APICache:
             **kwargs: Additional parameters
         """
         cache_key = self._generate_cache_key(prompt, model, **kwargs)
-        
-        self._cache_data[cache_key] = {
-            'timestamp': time.time(),
-            'response': response,
-            'model': model
-        }
-        
-        # Save cache periodically (every 10 new entries)
-        if len(self._cache_data) % 10 == 0:
-            self._save_cache()
-        
+
+        with self._lock:
+            self._cache_data[cache_key] = {
+                'timestamp': time.time(),
+                'response': response,
+                'model': model
+            }
+
+        # Persist on every write to ensure durability across short runs
+        self._save_cache()
         logger.debug("Cached API response")
     
     def cleanup_expired_entries(self):
@@ -272,14 +278,13 @@ class L2APICache:
         current_time = time.time()
         expiry_threshold = self.expiry_days * 24 * 3600
         
-        expired_keys = []
-        for key, entry in self._cache_data.items():
-            if current_time - entry.get('timestamp', 0) > expiry_threshold:
-                expired_keys.append(key)
-        
-        for key in expired_keys:
-            del self._cache_data[key]
-        
+        with self._lock:
+            expired_keys = []
+            for key, entry in list(self._cache_data.items()):
+                if current_time - entry.get('timestamp', 0) > expiry_threshold:
+                    expired_keys.append(key)
+            for key in expired_keys:
+                del self._cache_data[key]
         if expired_keys:
             self._save_cache()
             logger.info(f"Removed {len(expired_keys)} expired API cache entries")

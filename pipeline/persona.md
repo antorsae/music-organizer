@@ -149,6 +149,12 @@ Your final output MUST be a single, valid JSON object that adheres to this exact
 
 Note: `format_tags` includes all format information (SACD, FLAC, etc.), but `final_path` only includes special audiophile tags like [SACD] in the folder name, not basic formats like [FLAC].
 
+**IMPORTANT: DO NOT INCLUDE TRACK FILENAME NORMALIZATION**
+
+Your ONLY task is album classification and organization. Do NOT include any track filename normalization, track renaming suggestions, or track-level information in your response. Track filenames are provided for context only - use them to help identify the artist and album, but do NOT attempt to normalize or rename them in your output.
+
+You must respond with EXACTLY the JSON schema shown above - no additional fields, especially no "track_normalization" field.
+
 ## VII. Critical Instructions
 
 1. **Be Decisive:** You must classify every album into exactly one category. No ambiguity.
