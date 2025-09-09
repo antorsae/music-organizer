@@ -1019,16 +1019,29 @@ class AlbumMusicPipeline:
                             if is_last_album and is_last_artist:
                                 track_prefix = "        │   "
                             
-                            # For now, show all tracks regardless of disc structure
-                            # TODO: Implement proper disc-to-track mapping in future version
-                            for track_idx, track_rename in enumerate(track_norm.track_renamings):
-                                is_last_track = (track_idx == len(track_norm.track_renamings) - 1)
-                                track_symbol = "└──" if is_last_track else "├──"
-                                f.write(f"{track_prefix}{track_symbol} {track_rename.new_filename}\n")
-                            
-                            # Add disc structure note for multi-disc albums
+                            # Handle multi-disc albums with proper track-to-disc mapping
                             if result.album_info.has_disc_structure and result.album_info.disc_subdirs:
-                                f.write(f"{track_prefix}└── (Multi-disc: {', '.join(result.album_info.disc_subdirs)})\n")
+                                # Map tracks to discs by analyzing track paths
+                                disc_tracks = self._map_tracks_to_discs(result.album_info, track_norm.track_renamings)
+                                
+                                for disc_idx, disc_name in enumerate(sorted(result.album_info.disc_subdirs)):
+                                    is_last_disc = (disc_idx == len(result.album_info.disc_subdirs) - 1)
+                                    disc_symbol = "└──" if is_last_disc else "├──"
+                                    f.write(f"{track_prefix}{disc_symbol} {disc_name}/\n")
+                                    
+                                    # Show tracks for this disc
+                                    if disc_name in disc_tracks:
+                                        disc_track_prefix = track_prefix + ("    " if is_last_disc else "│   ")
+                                        for track_idx, track_rename in enumerate(disc_tracks[disc_name]):
+                                            is_last_track = (track_idx == len(disc_tracks[disc_name]) - 1)
+                                            track_symbol = "└──" if is_last_track else "├──"
+                                            f.write(f"{disc_track_prefix}{track_symbol} {track_rename.new_filename}\n")
+                            else:
+                                # Single disc - show all tracks
+                                for track_idx, track_rename in enumerate(track_norm.track_renamings):
+                                    is_last_track = (track_idx == len(track_norm.track_renamings) - 1)
+                                    track_symbol = "└──" if is_last_track else "├──"
+                                    f.write(f"{track_prefix}{track_symbol} {track_rename.new_filename}\n")
                 
                 f.write("\n")
         
@@ -1087,3 +1100,36 @@ class AlbumMusicPipeline:
             f.write(f"Total track renames needed: {total_changes} ({total_changes/total_tracks*100:.1f}%)\n")
         
         logger.info(f"Track renaming summary saved to: {summary_file}")
+    
+    def _map_tracks_to_discs(self, album_info: AlbumInfo, track_renamings: List) -> Dict[str, List]:
+        """
+        Map normalized track names to their respective disc directories.
+        
+        Args:
+            album_info: Album information with track paths
+            track_renamings: List of TrackRenaming objects with original and new filenames
+            
+        Returns:
+            Dictionary mapping disc names to lists of track renamings
+        """
+        disc_tracks = {disc_name: [] for disc_name in album_info.disc_subdirs}
+        
+        # Create mapping from original filename to track renaming
+        renaming_map = {tr.original_filename: tr for tr in track_renamings}
+        
+        # Go through original track paths and map them to discs
+        for track_path in album_info.track_paths:
+            track_filename = track_path.name
+            
+            # Find which disc this track belongs to by checking parent directory
+            for disc_name in album_info.disc_subdirs:
+                if disc_name in str(track_path.parent):
+                    # Find the corresponding track renaming
+                    if track_filename in renaming_map:
+                        disc_tracks[disc_name].append(renaming_map[track_filename])
+                    break
+        
+        # Remove empty discs
+        disc_tracks = {k: v for k, v in disc_tracks.items() if v}
+        
+        return disc_tracks
