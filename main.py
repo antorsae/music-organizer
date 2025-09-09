@@ -101,9 +101,9 @@ Examples:
     parser.add_argument(
         "--track-model",
         type=str,
-        default="gpt-5-nano",
+        default="gpt-5-mini",
         choices=["gpt-4o", "gpt-4o-mini", "gpt-5", "gpt-5-mini", "gpt-5-nano"],
-        help="LLM model to use for track normalization (default: gpt-5-nano for speed)"
+        help="LLM model to use for track normalization (default: gpt-5-mini for balance of speed/capacity)"
     )
 
     return parser.parse_args()

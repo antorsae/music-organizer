@@ -48,7 +48,7 @@ class AlbumMusicPipeline:
         self.model_name = model_name or config['api'].get('openai_model_extraction', 'gpt-5')
         self.include_tracklist = include_tracklist
         self.normalize_tracks = normalize_tracks
-        self.track_model = track_model or 'gpt-5-nano'  # Default to fast model for track normalization
+        self.track_model = track_model or 'gpt-5-mini'  # Default to balanced model for track normalization
         
         # Initialize components
         self.filesystem_ops = FileSystemOperations(
