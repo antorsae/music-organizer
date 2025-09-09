@@ -26,7 +26,12 @@ For each track, apply in order:
 1. **Remove Common Patterns**: Strip any prefix/suffix/middle elements that appear in ALL tracks
 2. **Clean Separators**: Replace underscores and hyphens used as separators with single spaces  
 3. **Fix Spacing**: Ensure single space after track number period ("01. ")
-4. **Apply Title Case**: Capitalize appropriately (articles lowercase unless first word)
+4. **Apply Proper Title Case** (Chicago Manual of Style):
+   - **Always capitalize**: First word, last word, nouns, verbs, adjectives, adverbs, pronouns
+   - **Never capitalize** (unless first/last): articles (a, an, the), short prepositions (of, in, to, for, at, by, with), conjunctions (and, but, or)
+   - **Special cases**: Contractions (Don't, Won't), acronyms (TV, CD), Roman numerals (Part I, Part II)
+   - **Foreign characters**: Preserve all accents and special characters (é, ñ, ü)
+   - **Parentheticals**: Apply same rules within parentheses (Live Acoustic)
 5. **Remove Scene Tags**: Strip release group tags (-FLAC, -WEB, etc.)
 
 ## Critical Examples
@@ -51,24 +56,40 @@ For each track, apply in order:
 03. I. Primo vere- Veris leta facies.flac
 ```
 
-### Adele Case (Artist Redundancy):
+### Adele Case (Artist Redundancy + Proper Title Case):
 **Original Pattern:**
 ```
 01-adele-rolling_in_the_deep.flac
 02-adele-rumour_has_it.flac
 03-adele-turning_tables.flac
+04-adele-dont_you_remember.flac
+05-adele-set_fire_to_the_rain.flac
+06-adele-he_wont_go.flac
 ```
 
 **Analysis:**
 - Common prefix: "adele-" (appears in ALL tracks)
-- Fix spacing and capitalization
+- Fix spacing and apply proper title case rules
 
-**Results:**
+**Results (Correct Title Case):**
 ```
-01. Rolling In The Deep.flac
+01. Rolling in the Deep.flac
 02. Rumour Has It.flac
 03. Turning Tables.flac
+04. Don't You Remember.flac
+05. Set Fire to the Rain.flac
+06. He Won't Go.flac
 ```
+
+### Title Case Examples Table:
+| Incorrect | Correct Explanation |
+| :--- | :--- |
+| `The Sun Always Shines On TV` | `The Sun Always Shines on TV` (preposition "on" lowercase) |
+| `I Dream Myself Alive` | `I Dream Myself Alive` (all major words) |
+| `The Bravery Of Being Out Of Range` | `The Bravery of Being out of Range` (prepositions lowercase) |
+| `What God Wants, Part Ii` | `What God Wants, Part II` (Roman numeral uppercase) |
+| `Dont You Remember` | `Don't You Remember` (fix apostrophe) |
+| `Ill Be Waiting` | `I'll Be Waiting` (fix apostrophe) |
 
 ## Output Format
 
