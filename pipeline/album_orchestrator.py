@@ -1019,18 +1019,16 @@ class AlbumMusicPipeline:
                             if is_last_album and is_last_artist:
                                 track_prefix = "        │   "
                             
-                            # Check for disc structure in original album
+                            # For now, show all tracks regardless of disc structure
+                            # TODO: Implement proper disc-to-track mapping in future version
+                            for track_idx, track_rename in enumerate(track_norm.track_renamings):
+                                is_last_track = (track_idx == len(track_norm.track_renamings) - 1)
+                                track_symbol = "└──" if is_last_track else "├──"
+                                f.write(f"{track_prefix}{track_symbol} {track_rename.new_filename}\n")
+                            
+                            # Add disc structure note for multi-disc albums
                             if result.album_info.has_disc_structure and result.album_info.disc_subdirs:
-                                # Group tracks by disc
-                                for disc_name in sorted(result.album_info.disc_subdirs):
-                                    f.write(f"{track_prefix}├── {disc_name}/\n")
-                                    # Show tracks for this disc (would need to map tracks to discs)
-                            else:
-                                # Single disc - show all tracks
-                                for track_idx, track_rename in enumerate(track_norm.track_renamings):
-                                    is_last_track = (track_idx == len(track_norm.track_renamings) - 1)
-                                    track_symbol = "└──" if is_last_track else "├──"
-                                    f.write(f"{track_prefix}{track_symbol} {track_rename.new_filename}\n")
+                                f.write(f"{track_prefix}└── (Multi-disc: {', '.join(result.album_info.disc_subdirs)})\n")
                 
                 f.write("\n")
         
