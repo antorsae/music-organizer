@@ -72,14 +72,28 @@ For each track, apply in order:
 
 ## Output Format
 
-ABSOLUTELY CRITICAL: 
-- You MUST respond with ONLY a valid JSON object
-- NO explanatory text before or after the JSON
-- NO markdown formatting or code blocks
-- NO comments or descriptions
-- JUST the raw JSON object starting with { and ending with }
+## CRITICAL RESPONSE FORMAT
 
-```json
+YOU MUST RESPOND WITH ONLY THIS JSON STRUCTURE. NO OTHER TEXT ALLOWED.
+
+{
+  "analysis": {
+    "common_prefix": "detected prefix or null",
+    "common_suffix": "detected suffix or null", 
+    "numbering_pattern": "consistent or inconsistent or none",
+    "total_audio_files": 0,
+    "flags": ["any issues"]
+  },
+  "track_renamings": [
+    {
+      "original_filename": "original name",
+      "new_filename": "proposed new name",
+      "changed": true
+    }
+  ]
+}
+
+EXAMPLE for Carmina Burana:
 {
   "analysis": {
     "common_prefix": "Carmina Burana- ",
@@ -91,17 +105,8 @@ ABSOLUTELY CRITICAL:
   "track_renamings": [
     {
       "original_filename": "01.Carmina Burana- Fortuna Imperatrix Mundi- O Fortuna-Carl Orff.flac",
-      "new_filename": "01. Fortuna Imperatrix Mundi- O Fortuna.flac",
+      "new_filename": "01. Fortuna Imperatrix Mundi- O Fortuna.flac", 
       "changed": true
     }
   ]
 }
-```
-
-### Response Requirements:
-- **Respond ONLY with the JSON object**
-- **No explanatory text before or after**
-- **Include analysis of common patterns**
-- **List ALL track renamings**
-- **Set "changed" to true only if the filename would actually change**
-- **Flag any issues in the "flags" array**
