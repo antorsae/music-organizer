@@ -48,7 +48,7 @@ class AlbumMusicPipeline:
         self.model_name = model_name or config['api'].get('openai_model_extraction', 'gpt-5')
         self.include_tracklist = include_tracklist
         self.normalize_tracks = normalize_tracks
-        self.track_model = track_model or 'gpt-5-mini'  # Default to balanced model for track normalization
+        self.track_model = track_model or 'gpt-5-nano'  # Default to fastest model with intelligent fallback
         
         # Initialize components
         self.filesystem_ops = FileSystemOperations(
@@ -875,14 +875,23 @@ class AlbumMusicPipeline:
         if track_processor:
             for result in results:
                 if result.success and result.album_info:
-                    # Tiered model fallback system
-                    models_to_try = [self.track_model]  # Start with configured model
+                    # Tiered model fallback system: nano → mini → full
+                    models_to_try = []
                     
-                    # Add fallback models if not already in list
-                    if self.track_model != 'gpt-5':
-                        models_to_try.append('gpt-5')  # Most powerful fallback
+                    # Always start with nano (fastest, cheapest)
+                    if self.track_model != 'gpt-5-nano':
+                        models_to_try.append('gpt-5-nano')
+                    
+                    # Add configured model if different
+                    if self.track_model not in models_to_try:
+                        models_to_try.append(self.track_model)
+                    
+                    # Add progression: nano → mini → full
                     if 'gpt-5-mini' not in models_to_try:
-                        models_to_try.insert(-1, 'gpt-5-mini')  # Balanced fallback
+                        models_to_try.append('gpt-5-mini')
+                    
+                    if 'gpt-5' not in models_to_try:
+                        models_to_try.append('gpt-5')
                     
                     track_normalization = None
                     

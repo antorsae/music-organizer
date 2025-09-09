@@ -285,7 +285,8 @@ class TrackNormalizationProcessor:
             response_model=TrackNormalizationResult,
             system_prompt=self.track_persona,
             temperature=0.0,
-            max_tokens=4000  # Increased for complex albums
+            max_tokens=4000,  # Increased for complex albums
+            timeout=120  # Shorter timeout for track normalization (simpler task)
         )
         
         logger.debug(f"Track normalization complete: {len(result.track_renamings)} tracks analyzed")
