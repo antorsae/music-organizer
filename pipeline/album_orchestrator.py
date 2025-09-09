@@ -947,23 +947,41 @@ class AlbumMusicPipeline:
                         artists[artist] = []
                     artists[artist].append(result)
                 
-                for artist in sorted(artists.keys()):
-                    f.write(f"│   ├── {artist}\n")
+                for artist_idx, artist in enumerate(sorted(artists.keys())):
+                    is_last_artist = (artist_idx == len(artists) - 1)
+                    artist_symbol = "└──" if is_last_artist else "├──"
+                    f.write(f"│   {artist_symbol} {artist}\n")
                     
                     for i, result in enumerate(artists[artist]):
                         is_last_album = (i == len(artists[artist]) - 1)
                         album_symbol = "└──" if is_last_album else "├──"
+                        artist_prefix = "    " if is_last_artist else "│   "
                         
                         album_title = result.final_album_info.album_title
-                        f.write(f"│   │   {album_symbol} {album_title}\n")
+                        f.write(f"{artist_prefix}│   {album_symbol} {album_title}\n")
                         
                         # Add normalized track names if available
                         album_path_key = str(result.album_info.album_path)
                         if album_path_key in track_results:
                             track_norm = track_results[album_path_key]
-                            track_prefix = "│   │       " if not is_last_album else "        "
-                            for track_rename in track_norm.track_renamings:
-                                f.write(f"{track_prefix}├── {track_rename.new_filename}\n")
+                            
+                            # Handle multi-disc albums by grouping tracks by disc
+                            track_prefix = f"{artist_prefix}│       "
+                            if is_last_album and is_last_artist:
+                                track_prefix = "        │   "
+                            
+                            # Check for disc structure in original album
+                            if result.album_info.has_disc_structure and result.album_info.disc_subdirs:
+                                # Group tracks by disc
+                                for disc_name in sorted(result.album_info.disc_subdirs):
+                                    f.write(f"{track_prefix}├── {disc_name}/\n")
+                                    # Show tracks for this disc (would need to map tracks to discs)
+                            else:
+                                # Single disc - show all tracks
+                                for track_idx, track_rename in enumerate(track_norm.track_renamings):
+                                    is_last_track = (track_idx == len(track_norm.track_renamings) - 1)
+                                    track_symbol = "└──" if is_last_track else "├──"
+                                    f.write(f"{track_prefix}{track_symbol} {track_rename.new_filename}\n")
                 
                 f.write("\n")
         
