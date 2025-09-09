@@ -276,14 +276,16 @@ class TrackNormalizationProcessor:
         # Build prompt with track filenames
         user_prompt = self._build_track_prompt(album_info)
         
-        # Make LLM call for track normalization
+        # Make LLM call for track normalization with strict JSON enforcement
+        json_enforced_prompt = user_prompt + "\n\nIMPORTANT: Respond ONLY with the JSON object. No explanatory text before or after."
+        
         result = self.api_client.get_structured_response(
-            prompt=user_prompt,
+            prompt=json_enforced_prompt,
             model=self.model_name,
             response_model=TrackNormalizationResult,
             system_prompt=self.track_persona,
             temperature=0.0,
-            max_tokens=3000
+            max_tokens=4000  # Increased for complex albums
         )
         
         logger.debug(f"Track normalization complete: {len(result.track_renamings)} tracks analyzed")

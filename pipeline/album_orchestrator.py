@@ -881,6 +881,27 @@ class AlbumMusicPipeline:
                         logger.info(f"Track normalization completed for {result.album_info.album_name}")
                     except Exception as e:
                         logger.warning(f"Track normalization failed for {result.album_info.album_name}: {e}")
+                        # Create fallback track normalization with original names
+                        fallback_tracks = [
+                            {"original_filename": filename, "new_filename": filename, "changed": False}
+                            for filename in result.album_info.track_files
+                            if any(filename.lower().endswith(ext) for ext in ['.flac', '.mp3', '.ogg', '.wav', '.m4a'])
+                        ]
+                        fallback_analysis = {
+                            "common_prefix": None,
+                            "common_suffix": None, 
+                            "numbering_pattern": "unknown",
+                            "total_audio_files": len(fallback_tracks),
+                            "flags": ["Track normalization failed - using original names"]
+                        }
+                        # Store fallback result so album still shows tracks
+                        from api.schemas import TrackNormalizationResult, TrackNormalizationAnalysis, TrackRenaming
+                        fallback_result = TrackNormalizationResult(
+                            analysis=TrackNormalizationAnalysis.model_validate(fallback_analysis),
+                            track_renamings=[TrackRenaming.model_validate(track) for track in fallback_tracks]
+                        )
+                        track_results[str(result.album_info.album_path)] = fallback_result
+                        logger.info(f"Using fallback track names for {result.album_info.album_name}")
         
         # Generate directory tree (folders only)
         self._generate_directory_tree_only(results)

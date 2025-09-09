@@ -95,7 +95,13 @@ For each track, apply in order:
 
 ## CRITICAL RESPONSE FORMAT
 
-YOU MUST RESPOND WITH ONLY THIS JSON STRUCTURE. NO OTHER TEXT ALLOWED.
+YOU MUST RESPOND WITH ONLY A JSON OBJECT. DO NOT EXPLAIN, SUMMARIZE, OR DESCRIBE ANYTHING.
+
+EXAMPLE OF WRONG RESPONSE:
+"I analyzed the tracks and removed the common prefix. The normalized tracks are: 01. Track Name.flac..."
+
+EXAMPLE OF CORRECT RESPONSE:
+{"analysis":{"common_prefix":"prefix","common_suffix":null,"numbering_pattern":"consistent","total_audio_files":5,"flags":[]},"track_renamings":[{"original_filename":"01.file.flac","new_filename":"01. File.flac","changed":true}]}
 
 {
   "analysis": {
